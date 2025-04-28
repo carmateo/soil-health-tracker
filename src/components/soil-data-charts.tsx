@@ -50,7 +50,7 @@ export function SoilDataCharts() {
     setError(null);
 
     const dataPath = `users/${user.uid}/soilData`;
-     console.log("Setting up charts listener for path:", dataPath); // Debug log
+     console.log("SoilDataCharts: Setting up charts listener for path:", dataPath); // Debug log
 
     const q = query(
       collection(db, dataPath),
@@ -60,41 +60,41 @@ export function SoilDataCharts() {
     const unsubscribe = onSnapshot(
       q,
       (querySnapshot) => {
-         console.log(`Charts snapshot received: ${querySnapshot.size} documents.`); // Debug log
+         console.log(`SoilDataCharts: Charts snapshot received: ${querySnapshot.size} documents.`); // Debug log
         const data: Array<SoilData & { id: string }> = [];
         querySnapshot.forEach((doc) => {
             const docData = doc.data();
-            console.log(`Charts processing doc ${doc.id}:`, docData); // Debug log
+            console.log(`SoilDataCharts: Charts processing doc ${doc.id}:`, docData); // Debug log
 
            // Ensure the date field is a Firestore Timestamp and valid
            let date = docData.date;
             if (!(date instanceof Timestamp)) {
-               console.warn(`Charts: Doc ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
+               console.warn(`SoilDataCharts: Charts: Doc ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
                try {
                  const potentialDate = new Date(date);
                  if (isValid(potentialDate)) {
                     date = Timestamp.fromDate(potentialDate);
-                     console.log(`Charts: Converted date for doc ${doc.id} to Timestamp:`, date); // Debug log
+                     console.log(`SoilDataCharts: Charts: Converted date for doc ${doc.id} to Timestamp:`, date); // Debug log
                  } else {
-                    console.warn(`Charts: Doc ${doc.id} has invalid date format, skipping.`);
+                    console.warn(`SoilDataCharts: Charts: Doc ${doc.id} has invalid date format, skipping.`);
                     return;
                  }
                } catch (e) {
-                 console.error(`Charts: Error converting date for doc ${doc.id}:`, e);
+                 console.error(`SoilDataCharts: Charts: Error converting date for doc ${doc.id}:`, e);
                  return;
                }
            }
            // Further validation on the converted Timestamp's date
             const jsDate = date.toDate();
             if (!isValid(jsDate)) {
-                console.warn(`Charts: Doc ${doc.id} date is invalid after conversion, skipping.`);
+                console.warn(`SoilDataCharts: Charts: Doc ${doc.id} date is invalid after conversion, skipping.`);
                 return;
             }
 
 
             // Minimal structure check
              if (!docData.measurementType) {
-                console.warn(`Charts: Doc ${doc.id} missing measurementType, skipping.`);
+                console.warn(`SoilDataCharts: Charts: Doc ${doc.id} missing measurementType, skipping.`);
                 return;
             }
 
@@ -103,6 +103,7 @@ export function SoilDataCharts() {
               userId: docData.userId || user.uid,
               date: date, // Use the validated/converted Timestamp
               location: docData.location,
+              locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
               latitude: docData.latitude,
               longitude: docData.longitude,
               measurementType: docData.measurementType,
@@ -116,19 +117,19 @@ export function SoilDataCharts() {
               privacy: docData.privacy || 'private',
            });
         });
-         console.log("Charts processed data:", data); // Debug log
+         console.log("SoilDataCharts: Charts processed data:", data); // Debug log
         setSoilData(data);
         setIsLoading(false);
       },
       (err) => {
-        console.error('Error fetching soil data for charts:', err);
+        console.error('SoilDataCharts: Error fetching soil data for charts:', err);
         setError('Failed to fetch soil data for charts. Check console.');
         setIsLoading(false);
       }
     );
 
     return () => {
-        console.log("Unsubscribing from charts Firestore listener."); // Debug log
+        console.log("SoilDataCharts: Unsubscribing from charts Firestore listener."); // Debug log
         unsubscribe();
     }
   }, [user, db]);
@@ -136,43 +137,51 @@ export function SoilDataCharts() {
   const { vessChartData, compositionChartData } = useMemo(() => {
     const vessData: VessChartData[] = [];
     const compositionData: CompositionChartData[] = [];
+     console.log("SoilDataCharts: Generating chart data from processed state:", soilData); // Log chart data generation
 
     soilData.forEach(item => {
        // Date is already validated as Timestamp in useEffect
-       const itemDate = item.date!.toDate(); // Safe to assert non-null due to filtering in useEffect
+       if (!item.date || !isValid(item.date.toDate())) {
+           console.warn(`SoilDataCharts: Skipping item ${item.id} in chart generation due to invalid date.`);
+           return;
+       }
+       const itemDate = item.date.toDate();
 
-      const dateStr = format(itemDate, 'MMM d, yy');
+       const dateStr = format(itemDate, 'MMM d, yy');
 
-      if (item.measurementType === 'vess' && isValidNumber(item.vessScore)) {
-        vessData.push({ date: dateStr, vessScore: item.vessScore, originalDate: itemDate });
-      } else if (item.measurementType === 'composition') {
-         // Use calculated percentages ONLY if they are valid numbers
-         const sandP = isValidNumber(item.sandPercent) ? item.sandPercent : null;
-         const clayP = isValidNumber(item.clayPercent) ? item.clayPercent : null;
-         const siltP = isValidNumber(item.siltPercent) ? item.siltPercent : null;
+       // console.log(`SoilDataCharts: Processing item ${item.id} for charts: Type=${item.measurementType}, VESS=${item.vessScore}, SandP=${item.sandPercent}`);
 
-          // Only add if at least one valid percentage is present
-          if (sandP !== null || clayP !== null || siltP !== null) {
-            compositionData.push({
-              date: dateStr,
-              sandPercent: sandP,
-              clayPercent: clayP,
-              siltPercent: siltP,
-              originalDate: itemDate,
-            });
-          } else {
-              console.warn(`Skipping composition chart entry for ${item.id} due to missing/invalid percentage data.`)
-          }
-      }
+       if (item.measurementType === 'vess' && isValidNumber(item.vessScore)) {
+         vessData.push({ date: dateStr, vessScore: item.vessScore, originalDate: itemDate });
+       } else if (item.measurementType === 'composition') {
+          // Use calculated percentages ONLY if they are valid numbers
+          const sandP = isValidNumber(item.sandPercent) ? item.sandPercent : null;
+          const clayP = isValidNumber(item.clayPercent) ? item.clayPercent : null;
+          const siltP = isValidNumber(item.siltPercent) ? item.siltPercent : null;
+
+           // Only add if at least one valid percentage is present
+           if (sandP !== null || clayP !== null || siltP !== null) {
+             compositionData.push({
+               date: dateStr,
+               sandPercent: sandP,
+               clayPercent: clayP,
+               siltPercent: siltP,
+               originalDate: itemDate,
+             });
+           } else {
+               console.warn(`SoilDataCharts: Skipping composition chart entry for ${item.id} due to missing/invalid percentage data.`)
+           }
+       } else {
+            // console.log(`SoilDataCharts: Item ${item.id} did not match chart criteria.`);
+       }
     });
 
     // Sort explicitly by original date just in case Firestore order isn't perfect or data gets reshuffled
     vessData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime());
     compositionData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime());
 
-    // No need for maps if data is already sorted and we want all points
-    // console.log("Generated VESS Chart Data:", vessData);
-    // console.log("Generated Composition Chart Data:", compositionData);
+    console.log("SoilDataCharts: Generated VESS Chart Data:", vessData);
+    console.log("SoilDataCharts: Generated Composition Chart Data:", compositionData);
 
     return { vessChartData: vessData, compositionChartData: compositionData };
   }, [soilData]);
@@ -245,12 +254,12 @@ export function SoilDataCharts() {
             </ChartContainer>
           ) : (
             <p className="text-muted-foreground text-center py-10">
-                No VESS score data available for the selected period.
+                No VESS score data available. Add some VESS entries first.
             </p>
           )}
            {hasVessData && needsMoreVessData && (
               <p className="text-xs text-muted-foreground text-center mt-2">
-                 Add more entries to see a trend line.
+                 Add more VESS entries to see a trend line.
                </p>
            )}
         </CardContent>
@@ -270,7 +279,8 @@ export function SoilDataCharts() {
                  siltPercent: { label: "Silt", color: "hsl(var(--chart-1))" }, // Green (using chart-1 for silt now)
               }} className="h-[300px] w-full">
                 <ResponsiveContainer>
-                   <AreaChart data={compositionChartData} margin={{ top: 5, right: 20, left: 0, bottom: 40 }} stackOffset="expand"> {/* expand makes it a 100% chart */}
+                   {/* Changed to stackOffset="expand" for 100% stacked area chart */}
+                   <AreaChart data={compositionChartData} margin={{ top: 5, right: 20, left: 0, bottom: 40 }} stackOffset="expand">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd"/>
                      {/* Y axis represents percentage 0-1 when stackOffset="expand" */}
@@ -298,7 +308,7 @@ export function SoilDataCharts() {
                        fill="url(#fillSand)"
                        stroke="hsl(var(--chart-3))"
                        strokeWidth={2}
-                       stackId="composition"
+                       stackId="composition" // All areas need the same stackId
                        connectNulls
                      />
                      <Area
@@ -326,12 +336,12 @@ export function SoilDataCharts() {
             </ChartContainer>
            ) : (
              <p className="text-muted-foreground text-center py-10">
-                No soil composition data (with percentages) available for the selected period.
+                No soil composition data (with percentages) available. Add some composition entries first.
              </p>
            )}
             {hasCompositionData && needsMoreCompositionData && (
               <p className="text-xs text-muted-foreground text-center mt-2">
-                 Add more entries to see a trend line.
+                 Add more composition entries to see a trend line.
                </p>
            )}
         </CardContent>

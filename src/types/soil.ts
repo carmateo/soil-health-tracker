@@ -1,3 +1,4 @@
+
 import type { Timestamp } from 'firebase/firestore';
 
 export interface SoilData {
@@ -5,6 +6,7 @@ export interface SoilData {
   userId: string;
   date: Timestamp;
   location?: string; // Optional location/field name
+  locationOption?: 'gps' | 'manual'; // Store how location was determined
   latitude?: number; // Optional GPS latitude
   longitude?: number; // Optional GPS longitude
   measurementType: 'vess' | 'composition';

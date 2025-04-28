@@ -39,10 +39,16 @@ export function SoilDataTable() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [selectedData, setSelectedData] = useState<(SoilData & { id: string }) | null>(null);
-   const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subDays(new Date(), 30), // Default to last 30 days
-    to: new Date(),
-  });
+   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+      const today = new Date();
+      const thirtyDaysAgo = subDays(today, 30);
+      // Ensure 'to' date includes the full current day for default view
+      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+      return {
+        from: thirtyDaysAgo,
+        to: endOfToday, // Default range includes today
+      };
+   });
 
 
   useEffect(() => {
@@ -57,7 +63,7 @@ export function SoilDataTable() {
 
     // Ensure we are querying the correct path
     const dataPath = `users/${user.uid}/soilData`;
-    console.log("Setting up listener for path:", dataPath); // Debug log
+    console.log("SoilDataTable: Setting up listener for path:", dataPath); // Debug log
 
     const q = query(
       collection(db, dataPath),
@@ -67,28 +73,28 @@ export function SoilDataTable() {
     const unsubscribe = onSnapshot(
       q,
       (querySnapshot) => {
-        console.log(`Snapshot received: ${querySnapshot.size} documents.`); // Debug log
+        console.log(`SoilDataTable: Snapshot received: ${querySnapshot.size} documents.`); // Debug log
         const data: Array<SoilData & { id: string }> = [];
         querySnapshot.forEach((doc) => {
            const docData = doc.data();
-            console.log(`Processing doc ${doc.id}:`, docData); // Debug log
+            console.log(`SoilDataTable: Processing doc ${doc.id}:`, docData); // Debug log
 
            // Ensure the date field is a Firestore Timestamp before converting
            let date = docData.date;
            if (!(date instanceof Timestamp)) {
-              console.warn(`Document ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
+              console.warn(`SoilDataTable: Document ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
               // Attempt conversion ONLY if it's a recognizable format (e.g., ISO string)
               try {
                  const potentialDate = new Date(date);
                  if (isValid(potentialDate)) {
                     date = Timestamp.fromDate(potentialDate);
-                    console.log(`Converted date for doc ${doc.id} to Timestamp:`, date); // Debug log
+                    console.log(`SoilDataTable: Converted date for doc ${doc.id} to Timestamp:`, date); // Debug log
                  } else {
-                    console.warn(`Document ${doc.id} has invalid date format, skipping.`);
+                    console.warn(`SoilDataTable: Document ${doc.id} has invalid date format, skipping.`);
                     return; // Skip this entry if date is fundamentally invalid
                  }
               } catch (e) {
-                 console.error(`Error converting date for doc ${doc.id}:`, e);
+                 console.error(`SoilDataTable: Error converting date for doc ${doc.id}:`, e);
                  return; // Skip on conversion error
               }
            }
@@ -99,6 +105,7 @@ export function SoilDataTable() {
                 userId: docData.userId || user.uid, // Ensure userId is present
                 date: date, // Use the potentially converted Timestamp
                 location: docData.location,
+                locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)), // Infer if missing, handle undefined
                 latitude: docData.latitude,
                 longitude: docData.longitude,
                 measurementType: docData.measurementType || 'vess', // Default if missing? Or skip? Let's assume it exists
@@ -114,18 +121,22 @@ export function SoilDataTable() {
 
             // Validate basic structure before adding
             if (!entry.measurementType) {
-                console.warn(`Document ${doc.id} missing measurementType, skipping.`);
+                console.warn(`SoilDataTable: Document ${doc.id} missing measurementType, skipping.`);
                 return;
             }
+             if (!entry.date || !isValid(entry.date.toDate())) {
+                 console.warn(`SoilDataTable: Document ${doc.id} has invalid date after processing, skipping.`);
+                 return;
+             }
 
            data.push(entry);
         });
-        console.log("Processed data:", data); // Debug log
+        console.log("SoilDataTable: Processed data:", data); // Debug log
         setSoilData(data);
         setIsLoading(false);
       },
       (err) => {
-        console.error('Error fetching soil data:', err);
+        console.error('SoilDataTable: Error fetching soil data:', err);
         setError('Failed to fetch soil data. Check console for details.');
         toast({
           variant: 'destructive',
@@ -138,7 +149,7 @@ export function SoilDataTable() {
 
     // Cleanup subscription on unmount
     return () => {
-        console.log("Unsubscribing from Firestore listener."); // Debug log
+        console.log("SoilDataTable: Unsubscribing from Firestore listener."); // Debug log
         unsubscribe();
     };
   }, [user, db, toast]);
@@ -157,6 +168,7 @@ export function SoilDataTable() {
   const handleDelete = async () => {
     if (!selectedData || !user) return;
 
+    // Show loading state on button?
     setIsLoading(true); // Indicate loading during delete
     try {
       const docRef = doc(db, `users/${user.uid}/soilData`, selectedData.id);
@@ -165,46 +177,54 @@ export function SoilDataTable() {
       setIsDeleteDialogOpen(false);
       setSelectedData(null);
     } catch (error: any) {
-      console.error('Error deleting data:', error);
+      console.error('SoilDataTable: Error deleting data:', error);
       toast({
         variant: 'destructive',
         title: 'Error Deleting Data',
         description: error.message || 'Could not delete entry. Please try again.',
       });
     } finally {
-        setIsLoading(false);
+        setIsLoading(false); // Stop loading indicator
     }
   };
 
    const filteredData = useMemo(() => {
-    return soilData.filter(item => {
-      // Add a check for item.date existence and type
-      if (!item.date || !(item.date instanceof Timestamp)) {
-         console.warn("Filtering out item due to invalid date:", item.id, item.date); // Debug log
-        return false; // Skip items with invalid dates
-      }
-      const itemDate = item.date.toDate();
-       if (!isValid(itemDate)) {
-           console.warn("Filtering out item due to invalid date after conversion:", item.id, itemDate); // Debug log
-           return false; // Double check validity after conversion
+     console.log("SoilDataTable: Filtering data with date range:", dateRange, "Total items:", soilData.length); // Log start of filtering
+     return soilData.filter(item => {
+       // Add a check for item.date existence and type
+       if (!item.date || !(item.date instanceof Timestamp)) {
+          console.warn("SoilDataTable Filtering: Skipping item due to missing or non-Timestamp date:", item.id, item.date); // Debug log
+         return false; // Skip items with invalid dates
+       }
+       const itemDate = item.date.toDate();
+        if (!isValid(itemDate)) {
+            console.warn("SoilDataTable Filtering: Skipping item due to invalid date after conversion:", item.id, itemDate); // Debug log
+            return false; // Double check validity after conversion
+        }
+
+       const fromDate = dateRange?.from;
+       const toDate = dateRange?.to;
+
+       if (!fromDate && !toDate) {
+            // console.log(`SoilDataTable Filtering: Item ID ${item.id}: No date range applied.`);
+            return true; // No filter applied
        }
 
-      const fromDate = dateRange?.from;
-      const toDate = dateRange?.to;
+       // Set hours to ensure full day comparison
+       const startOfDayFrom = fromDate ? new Date(fromDate.setHours(0, 0, 0, 0)) : null;
+       const endOfDayTo = toDate ? new Date(toDate.setHours(23, 59, 59, 999)) : null;
 
-      if (!fromDate && !toDate) return true; // No filter applied
+       // console.log(`SoilDataTable Filtering: Item ID ${item.id}: Date ${itemDate.toISOString()}, Filter From: ${startOfDayFrom?.toISOString() ?? 'N/A'}, Filter To: ${endOfDayTo?.toISOString() ?? 'N/A'}`); // Detailed log
 
-      // Ensure comparisons happen correctly against start/end of day
-      const startOfDayFrom = fromDate ? new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), 0, 0, 0, 0) : null;
-      const endOfDayTo = toDate ? new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 23, 59, 59, 999) : null;
+       const isAfterFrom = startOfDayFrom ? itemDate >= startOfDayFrom : true;
+       const isBeforeTo = endOfDayTo ? itemDate <= endOfDayTo : true;
 
+       const included = isAfterFrom && isBeforeTo;
+       // console.log(`SoilDataTable Filtering: Item ID ${item.id}: isAfterFrom=${isAfterFrom}, isBeforeTo=${isBeforeTo}, Included=${included}`); // Result log
 
-      const isAfterFrom = startOfDayFrom ? itemDate >= startOfDayFrom : true;
-      const isBeforeTo = endOfDayTo ? itemDate <= endOfDayTo : true;
-
-      return isAfterFrom && isBeforeTo;
-    });
-  }, [soilData, dateRange]);
+       return included;
+     });
+   }, [soilData, dateRange]);
 
 
    if (isLoading && soilData.length === 0) { // Show loading only initially or when refetching after error/empty
@@ -261,7 +281,15 @@ export function SoilDataTable() {
               mode="range"
               defaultMonth={dateRange?.from}
               selected={dateRange}
-              onSelect={setDateRange}
+              onSelect={(newRange) => {
+                 // If only 'from' is selected, keep 'to' as null/undefined for now
+                 // If 'to' is selected, set its time to the end of the day
+                 if (newRange?.to) {
+                    newRange.to.setHours(23, 59, 59, 999);
+                 }
+                 setDateRange(newRange);
+                 console.log("SoilDataTable: Date range selected:", newRange);
+              }}
               numberOfMonths={2}
                disabled={(date) => date > new Date() || date < new Date("1900-01-01")} // Disable future dates and very old dates
             />
@@ -283,7 +311,13 @@ export function SoilDataTable() {
              </TableRow>
            </TableHeader>
            <TableBody>
-             {filteredData.length === 0 ? (
+             {isLoading && filteredData.length === 0 ? ( // Show loading indicator inside table if actively loading (not just initial)
+                <TableRow>
+                   <TableCell colSpan={6} className="h-24 text-center">
+                      <LoadingSpinner />
+                   </TableCell>
+                </TableRow>
+             ) : filteredData.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                     {soilData.length === 0 ? 'No soil data found yet. Add your first sample!' : 'No soil data found for the selected date range.'}
@@ -301,6 +335,7 @@ export function SoilDataTable() {
                         {data.locationOption === 'gps' && data.latitude && data.longitude ? (
                             <>
                                 <MapPin className="h-4 w-4 text-muted-foreground" />
+                                {/* Truncate coordinates for display */}
                                 {`${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}`}
                             </>
                         ) : data.locationOption === 'manual' && data.location ? (
@@ -319,7 +354,11 @@ export function SoilDataTable() {
                       `VESS: ${data.vessScore ?? 'N/A'}` // Handle missing score
                     ) : (
                        // Prioritize percentages, fallback to raw cm, then N/A
-                       `S:${data.sandPercent?.toFixed(0) ?? data.sand ?? 'N/A'}% | C:${data.clayPercent?.toFixed(0) ?? data.clay ?? 'N/A'}% | Si:${data.siltPercent?.toFixed(0) ?? data.silt ?? 'N/A'}%`
+                        (data.sandPercent != null || data.clayPercent != null || data.siltPercent != null)
+                        ? `S:${data.sandPercent?.toFixed(0) ?? '--'}% | C:${data.clayPercent?.toFixed(0) ?? '--'}% | Si:${data.siltPercent?.toFixed(0) ?? '--'}%`
+                        : (data.sand != null || data.clay != null || data.silt != null)
+                            ? `S:${data.sand ?? '--'}cm | C:${data.clay ?? '--'}cm | Si:${data.silt ?? '--'}cm`
+                            : 'N/A'
                     )}
                   </TableCell>
                   <TableCell>
@@ -331,8 +370,10 @@ export function SoilDataTable() {
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
+                         {/* Disable button slightly differently when row action is loading */}
                         <Button variant="ghost" className="h-8 w-8 p-0" disabled={isLoading}>
                           <span className="sr-only">Open menu</span>
+                           {/* Consider showing a mini spinner here if needed */}
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -369,7 +410,7 @@ export function SoilDataTable() {
                 onFormSubmit={() => {
                   setIsEditDialogOpen(false);
                   setSelectedData(null); // Clear selection after submit
-                  toast({ title: 'Data Updated', description: 'Soil sample successfully updated.' });
+                  // Toast is now handled within the form's submit logic
                 }}
              />
           )}
