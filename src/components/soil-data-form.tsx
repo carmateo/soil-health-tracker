@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -41,31 +42,33 @@ const baseSchema = z.object({
   privacy: z.enum(['public', 'private']),
 });
 
-// VESS measurement specific schema
-const vessSchema = z.object({
+// VESS measurement specific schema - extending base
+const vessFormSchema = baseSchema.extend({
   measurementType: z.literal('vess'),
   vessScore: z.number().min(1).max(5),
-  sand: z.number().optional(), // Optional fields for conditional logic
-  clay: z.number().optional(),
-  silt: z.number().optional(),
+  // Ensure other measurement fields are explicitly optional/nullable for this type
+  sand: z.number().optional().nullable(),
+  clay: z.number().optional().nullable(),
+  silt: z.number().optional().nullable(),
 });
 
-// Composition measurement specific schema
-const compositionSchema = z.object({
+// Composition measurement specific schema - extending base
+const compositionFormSchema = baseSchema.extend({
   measurementType: z.literal('composition'),
   sand: z.number({ required_error: "Sand (cm) is required." }).min(0),
   clay: z.number({ required_error: "Clay (cm) is required." }).min(0),
   silt: z.number({ required_error: "Silt (cm) is required." }).min(0),
-  vessScore: z.number().optional(), // Optional field for conditional logic
+  // Ensure VESS score is explicitly optional/nullable for this type
+  vessScore: z.number().optional().nullable(),
 }).refine(data => (data.sand ?? 0) + (data.clay ?? 0) + (data.silt ?? 0) > 0, {
     message: "Total composition (sand + clay + silt) must be greater than 0 cm.",
     path: ["sand"], // Assign error to one field or create a custom path if needed
 });
 
-// Combine schemas using discriminated union based on measurementType
+// Combine schemas using discriminated union
 const formSchema = z.discriminatedUnion('measurementType', [
-    baseSchema.merge(vessSchema),
-    baseSchema.merge(compositionSchema),
+  vessFormSchema,
+  compositionFormSchema,
 ]);
 
 
@@ -98,10 +101,13 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     defaultValues: initialData ? {
         ...initialData,
         date: initialData.date.toDate(), // Convert Timestamp to Date
+        measurementType: initialData.measurementType || 'vess', // Ensure measurementType exists
         vessScore: initialData.vessScore ?? undefined,
         sand: initialData.sand ?? undefined,
         clay: initialData.clay ?? undefined,
         silt: initialData.silt ?? undefined,
+        // Add null defaults for fields potentially missing in initialData based on type
+        ...(initialData.measurementType === 'vess' ? { sand: null, clay: null, silt: null } : { vessScore: null }),
       } : {
       date: new Date(),
       measurementType: 'vess',
@@ -111,6 +117,12 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       sand: undefined,
       clay: undefined,
       silt: undefined,
+      latitude: undefined,
+      longitude: undefined,
+      // Add null defaults for fields not relevant to the initial default 'vess' type
+      sand: null,
+      clay: null,
+      silt: null,
     },
      mode: 'onChange', // Validate on change for better UX
   });
@@ -207,27 +219,49 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
     setIsLoading(true);
 
-    // Prepare data for Firestore
-    const submissionData: Omit<SoilData, 'id'> = {
-      userId: user.uid,
-      date: Timestamp.fromDate(data.date), // Convert Date to Timestamp
-      location: data.location || undefined,
-      latitude: data.latitude || undefined,
-      longitude: data.longitude || undefined,
-      measurementType: data.measurementType,
-      privacy: data.privacy,
-      ...(data.measurementType === 'vess' && { vessScore: data.vessScore }),
-      ...(data.measurementType === 'composition' && {
-        sand: data.sand,
-        clay: data.clay,
-        silt: data.silt,
-        sandPercent: sandPercent,
-        clayPercent: clayPercent,
-        siltPercent: siltPercent,
-      }),
-    };
+    // Prepare data for Firestore, ensuring correct types based on measurementType
+    let submissionData: Omit<SoilData, 'id'>;
 
-     // Remove undefined fields before saving
+    if (data.measurementType === 'vess') {
+        submissionData = {
+            userId: user.uid,
+            date: Timestamp.fromDate(data.date),
+            location: data.location || undefined,
+            latitude: data.latitude || undefined,
+            longitude: data.longitude || undefined,
+            measurementType: 'vess',
+            vessScore: data.vessScore,
+            privacy: data.privacy,
+            // Explicitly set composition fields to null/undefined for VESS type
+            sand: undefined,
+            clay: undefined,
+            silt: undefined,
+            sandPercent: undefined,
+            clayPercent: undefined,
+            siltPercent: undefined,
+        };
+    } else { // measurementType is 'composition'
+        submissionData = {
+            userId: user.uid,
+            date: Timestamp.fromDate(data.date),
+            location: data.location || undefined,
+            latitude: data.latitude || undefined,
+            longitude: data.longitude || undefined,
+            measurementType: 'composition',
+            sand: data.sand,
+            clay: data.clay,
+            silt: data.silt,
+            sandPercent: sandPercent,
+            clayPercent: clayPercent,
+            siltPercent: siltPercent,
+            privacy: data.privacy,
+            // Explicitly set VESS score to null/undefined for composition type
+            vessScore: undefined,
+        };
+    }
+
+
+     // Remove undefined fields before saving (optional, Firestore handles undefined)
     Object.keys(submissionData).forEach(key => {
       const K = key as keyof typeof submissionData;
       if (submissionData[K] === undefined) {
@@ -240,7 +274,9 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
        if (initialData?.id) {
         // Update existing document
         const docRef = doc(db, `users/${user.uid}/soilData`, initialData.id);
-        await updateDoc(docRef, submissionData);
+        // Ensure we only update fields relevant to the potentially changed type
+        const updatePayload: Partial<SoilData> = { ...submissionData };
+        await updateDoc(docRef, updatePayload);
         toast({ title: 'Success', description: 'Soil data updated successfully.' });
        } else {
          // Add new document
@@ -252,11 +288,15 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
            vessScore: 3,
            privacy: settings?.defaultPrivacy || 'private',
            location: '',
-           sand: undefined,
+           sand: undefined, // Reset composition fields
            clay: undefined,
            silt: undefined,
            latitude: undefined,
            longitude: undefined,
+           // Add null defaults for fields not relevant to the initial default 'vess' type
+           sand: null,
+           clay: null,
+           silt: null,
         });
          setStep(1); // Go back to step 1 after adding
        }
@@ -312,7 +352,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         <Calendar
                           mode="single"
                           selected={field.value}
-                          onSelect={field.onChange}
+                          onSelect={(date) => field.onChange(date)}
                           disabled={(date) =>
                             date > new Date() || date < new Date("1900-01-01")
                           }
@@ -335,7 +375,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                      <MapPin className="h-4 w-4" /> Optional: Location / Field Name
                   </FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., North Field, Backyard Plot" {...field} />
+                    <Input placeholder="e.g., North Field, Backyard Plot" {...field} value={field.value ?? ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -393,21 +433,24 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                   <FormControl>
                     <RadioGroup
                       onValueChange={(value) => {
-                        field.onChange(value);
+                        const newValue = value as 'vess' | 'composition';
+                        field.onChange(newValue);
                         // Reset other measurement type fields when switching
-                        if (value === 'vess') {
-                           form.setValue('sand', undefined);
-                           form.setValue('clay', undefined);
-                           form.setValue('silt', undefined);
+                        if (newValue === 'vess') {
+                           form.setValue('sand', null); // Use null for Zod compatibility
+                           form.setValue('clay', null);
+                           form.setValue('silt', null);
                            form.setValue('vessScore', form.getValues('vessScore') || 3); // Keep or set default
-                        } else {
-                           form.setValue('vessScore', undefined);
-                           form.setValue('sand', form.getValues('sand') || 0); // Keep or set default
-                           form.setValue('clay', form.getValues('clay') || 0);
-                           form.setValue('silt', form.getValues('silt') || 0);
+                        } else { // composition
+                           form.setValue('vessScore', null); // Use null for Zod compatibility
+                           form.setValue('sand', form.getValues('sand') ?? 0); // Keep or set default (use ?? 0)
+                           form.setValue('clay', form.getValues('clay') ?? 0);
+                           form.setValue('silt', form.getValues('silt') ?? 0);
                         }
+                         // Trigger validation after resetting potentially required fields
+                         form.trigger();
                       }}
-                      defaultValue={field.value}
+                      value={field.value} // Use value directly
                       className="flex flex-col sm:flex-row gap-4"
                     >
                       <FormItem className="flex items-center space-x-3 space-y-0">
@@ -438,13 +481,13 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
               <FormField
                 control={form.control}
                 name="vessScore"
-                 render={({ field: { value, onChange } }) => (
+                 render={({ field: { value, onChange } }) => ( // Added type annotation for safety
                   <FormItem>
                     <FormLabel>VESS Score (1-5)</FormLabel>
                      <FormControl>
                        <>
                         <Slider
-                          defaultValue={[3]}
+                          // defaultValue={[3]} // Remove default value if controlled
                           value={[value ?? 3]} // Ensure value is defined for Slider
                           onValueChange={(vals) => onChange(vals[0])}
                           min={1}
@@ -490,6 +533,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                        <FormItem>
                          <FormLabel>Sand (cm)</FormLabel>
                          <FormControl>
+                           {/* Ensure value is '' if undefined/null, and convert back to number/undefined */}
                            <Input type="number" min="0" step="0.1" placeholder="e.g., 10.5" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
                          </FormControl>
                          <FormMessage />
@@ -546,7 +590,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Data Privacy</FormLabel>
-                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                     <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                            <SelectTrigger className="w-[180px]">
                               <SelectValue placeholder="Select privacy" />
@@ -599,3 +643,5 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     </Form>
   );
 }
+
+    
