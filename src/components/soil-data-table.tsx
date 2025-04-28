@@ -53,6 +53,7 @@ export function SoilDataTable() {
 
   useEffect(() => {
     if (!user) {
+       console.log("SoilDataTable: No user, skipping fetch.");
       setIsLoading(false);
       setSoilData([]);
       return;
@@ -75,9 +76,9 @@ export function SoilDataTable() {
       (querySnapshot) => {
         console.log(`SoilDataTable: Snapshot received: ${querySnapshot.size} documents.`); // Debug log
         const data: Array<SoilData & { id: string }> = [];
-        querySnapshot.forEach((doc) => {
+        querySnapshot.forEach((doc, index) => { // Add index for logging
            const docData = doc.data();
-            console.log(`SoilDataTable: Processing doc ${doc.id}:`, docData); // Debug log
+            console.log(`SoilDataTable: Processing doc ${index + 1}/${querySnapshot.size} (ID: ${doc.id}):`, docData); // Debug log with index
 
            // Ensure the date field is a Firestore Timestamp before converting
            let date = docData.date;
@@ -108,7 +109,7 @@ export function SoilDataTable() {
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)), // Infer if missing, handle undefined
                 latitude: docData.latitude,
                 longitude: docData.longitude,
-                measurementType: docData.measurementType || 'vess', // Default if missing? Or skip? Let's assume it exists
+                measurementType: docData.measurementType, // Don't default, rely on save logic
                 vessScore: docData.vessScore,
                 sand: docData.sand,
                 clay: docData.clay,
@@ -130,8 +131,9 @@ export function SoilDataTable() {
              }
 
            data.push(entry);
+           console.log(`SoilDataTable: Pushed entry ${index + 1}/${querySnapshot.size} (ID: ${doc.id}):`, entry); // Log each pushed entry
         });
-        console.log("SoilDataTable: Processed data:", data); // Debug log
+        console.log("SoilDataTable: Processed data array (before setting state):", data); // Debug log
         setSoilData(data);
         setIsLoading(false);
       },
@@ -189,9 +191,10 @@ export function SoilDataTable() {
   };
 
    const filteredData = useMemo(() => {
-     console.log("SoilDataTable: Filtering data with date range:", dateRange, "Total items:", soilData.length); // Log start of filtering
-     return soilData.filter(item => {
-       // Add a check for item.date existence and type
+     console.log("SoilDataTable: Filtering data with date range:", dateRange, "Raw data length:", soilData.length); // Log start of filtering
+     const filtered = soilData.filter(item => {
+       console.log(`SoilDataTable Filtering: Checking item ID ${item.id}`); // Log item being checked
+        // Add a check for item.date existence and type
        if (!item.date || !(item.date instanceof Timestamp)) {
           console.warn("SoilDataTable Filtering: Skipping item due to missing or non-Timestamp date:", item.id, item.date); // Debug log
          return false; // Skip items with invalid dates
@@ -206,24 +209,27 @@ export function SoilDataTable() {
        const toDate = dateRange?.to;
 
        if (!fromDate && !toDate) {
-            // console.log(`SoilDataTable Filtering: Item ID ${item.id}: No date range applied.`);
+            console.log(`SoilDataTable Filtering: Item ID ${item.id}: No date range applied.`);
             return true; // No filter applied
        }
 
        // Set hours to ensure full day comparison
-       const startOfDayFrom = fromDate ? new Date(fromDate.setHours(0, 0, 0, 0)) : null;
-       const endOfDayTo = toDate ? new Date(toDate.setHours(23, 59, 59, 999)) : null;
+       const startOfDayFrom = fromDate ? new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), 0, 0, 0, 0) : null;
+       const endOfDayTo = toDate ? new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 23, 59, 59, 999) : null;
 
-       // console.log(`SoilDataTable Filtering: Item ID ${item.id}: Date ${itemDate.toISOString()}, Filter From: ${startOfDayFrom?.toISOString() ?? 'N/A'}, Filter To: ${endOfDayTo?.toISOString() ?? 'N/A'}`); // Detailed log
+
+       console.log(`SoilDataTable Filtering: Item ID ${item.id}: Date ${itemDate.toISOString()}, Filter From: ${startOfDayFrom?.toISOString() ?? 'N/A'}, Filter To: ${endOfDayTo?.toISOString() ?? 'N/A'}`); // Detailed log
 
        const isAfterFrom = startOfDayFrom ? itemDate >= startOfDayFrom : true;
        const isBeforeTo = endOfDayTo ? itemDate <= endOfDayTo : true;
 
        const included = isAfterFrom && isBeforeTo;
-       // console.log(`SoilDataTable Filtering: Item ID ${item.id}: isAfterFrom=${isAfterFrom}, isBeforeTo=${isBeforeTo}, Included=${included}`); // Result log
+       console.log(`SoilDataTable Filtering: Item ID ${item.id}: isAfterFrom=${isAfterFrom}, isBeforeTo=${isBeforeTo}, Included=${included}`); // Result log
 
        return included;
      });
+      console.log("SoilDataTable: Filtering complete. Filtered data length:", filtered.length); // Log end of filtering
+      return filtered;
    }, [soilData, dateRange]);
 
 
@@ -284,11 +290,12 @@ export function SoilDataTable() {
               onSelect={(newRange) => {
                  // If only 'from' is selected, keep 'to' as null/undefined for now
                  // If 'to' is selected, set its time to the end of the day
-                 if (newRange?.to) {
-                    newRange.to.setHours(23, 59, 59, 999);
+                 const updatedRange = { ...newRange };
+                 if (updatedRange?.to) {
+                    updatedRange.to = new Date(updatedRange.to.getFullYear(), updatedRange.to.getMonth(), updatedRange.to.getDate(), 23, 59, 59, 999);
                  }
-                 setDateRange(newRange);
-                 console.log("SoilDataTable: Date range selected:", newRange);
+                 setDateRange(updatedRange);
+                 console.log("SoilDataTable: Date range selected:", updatedRange);
               }}
               numberOfMonths={2}
                disabled={(date) => date > new Date() || date < new Date("1900-01-01")} // Disable future dates and very old dates
