@@ -1,476 +1,207 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useFirebase } from '@/context/firebase-context';
-import { useAuth } from '@/context/auth-context';
-import { collection, query, where, onSnapshot, deleteDoc, doc, orderBy, Timestamp } from 'firebase/firestore';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import React, { useMemo, useState } from 'react';
+import type { SoilData } from '@/types/soil'; // Import the type
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
-import { AlertTriangle, MoreHorizontal, Pencil, Trash2, Calendar as CalendarIcon, MapPin, Globe, Lock } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
-import type { SoilData } from '@/types/soil';
 import { format, isValid } from 'date-fns';
-import { LoadingSpinner } from './loading-spinner';
-import { SoilDataForm } from './soil-data-form'; // Import the form for editing
-import { Badge } from '@/components/ui/badge';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import type { DateRange } from "react-day-picker";
-import { subDays } from 'date-fns';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { MapPin, Calendar, TestTubeDiagonal, Sigma, Percent } from 'lucide-react'; // Use appropriate icons
 
+interface SoilDataTableProps {
+  data: Array<SoilData & { id: string }>;
+}
 
-export function SoilDataTable() {
-  const { db } = useFirebase();
-  const { user } = useAuth();
-  const { toast } = useToast();
-  const [soilData, setSoilData] = useState<Array<SoilData & { id: string }>>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [selectedData, setSelectedData] = useState<(SoilData & { id: string }) | null>(null);
-   const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
-      const today = new Date();
-      const thirtyDaysAgo = subDays(today, 30);
-      const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-      console.log("SoilDataTable: Initializing date range:", { from: thirtyDaysAgo, to: endOfToday });
-      return {
-        from: thirtyDaysAgo,
-        to: endOfToday,
-      };
-   });
+const ITEMS_PER_PAGE = 10;
 
+export function SoilDataTable({ data }: SoilDataTableProps) {
+  const [filterLocation, setFilterLocation] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'vess' | 'composition'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
 
-  useEffect(() => {
-    // Add a small delay to ensure user context is potentially settled
-    const timer = setTimeout(() => {
-        if (!user) {
-           console.log("SoilDataTable Effect: No user found after delay, skipping fetch.");
-          setIsLoading(false);
-          setSoilData([]); // Explicitly clear data if no user
-          setError(null); // Clear any previous error
-          return;
-        }
+  // Ensure data is always an array, even if null/undefined initially
+  const validData = useMemo(() => Array.isArray(data) ? data : [], [data]);
 
-        setIsLoading(true);
-        setError(null);
+  const filteredData = useMemo(() => {
+    console.log("SoilDataTable Filtering: Input data:", validData); // Debug: Log input data
+    return validData.filter((entry) => {
+      // Location filter (check both manual location and coords if GPS)
+      const locationMatch = filterLocation === '' ||
+        (entry.locationOption === 'manual' && entry.location?.toLowerCase().includes(filterLocation.toLowerCase())) ||
+        (entry.locationOption === 'gps' && `GPS: ${entry.latitude?.toFixed(2)}, ${entry.longitude?.toFixed(2)}`.toLowerCase().includes(filterLocation.toLowerCase()));
 
-        const dataPath = `users/${user.uid}/soilData`;
-        console.log(`SoilDataTable Effect: User found (UID: ${user.uid}). Setting up listener for path: ${dataPath}`);
+      // Type filter
+      const typeMatch = filterType === 'all' || entry.measurementType === filterType;
 
-        const q = query(
-          collection(db, dataPath),
-          orderBy('date', 'desc') // Order by date descending for table view
-        );
+      return locationMatch && typeMatch;
+    });
+  }, [filterLocation, filterType, validData]);
 
-        const unsubscribe = onSnapshot(
-          q,
-          (querySnapshot) => {
-            console.log(`SoilDataTable Snapshot Received: ${querySnapshot.size} documents. Is empty? ${querySnapshot.empty}`);
-             if (querySnapshot.metadata.hasPendingWrites) {
-               console.log("SoilDataTable Snapshot: Data has local writes, waiting for server confirmation potentially.");
-             }
+  // Pagination logic
+  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredData, currentPage]);
 
-            const rawDocsData: any[] = [];
-            const processedData: Array<SoilData & { id: string }> = [];
-            querySnapshot.forEach((doc, index) => {
-               const docData = doc.data();
-               rawDocsData.push({ id: doc.id, ...docData }); // Log raw data first
-               // console.log(`SoilDataTable Snapshot: Processing doc ${index + 1}/${querySnapshot.size} (ID: ${doc.id}):`, docData);
-
-               let date = docData.date;
-               let dateValid = false;
-               if (date instanceof Timestamp) {
-                    const jsDate = date.toDate();
-                    if (isValid(jsDate)) {
-                        dateValid = true;
-                    } else {
-                        console.warn(`SoilDataTable Snapshot: Doc ${doc.id} has Timestamp but it converts to invalid JSDate.`);
-                    }
-               } else {
-                  console.warn(`SoilDataTable Snapshot: Doc ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
-                  // Attempt conversion only if needed
-                  try {
-                      const potentialDate = new Date(date); // Attempt to parse whatever it is
-                      if (isValid(potentialDate)) {
-                          date = Timestamp.fromDate(potentialDate); // Convert to Timestamp if parseable
-                          dateValid = true;
-                          console.log(`SoilDataTable Snapshot: Converted non-Timestamp date for doc ${doc.id} to Timestamp:`, date);
-                      } else {
-                          console.warn(`SoilDataTable Snapshot: Doc ${doc.id} has non-Timestamp, non-parseable date, skipping.`);
-                          return; // Skip this doc if date is completely unusable
-                      }
-                  } catch (e) {
-                      console.error(`SoilDataTable Snapshot: Error converting date for doc ${doc.id}:`, e);
-                      return; // Skip on error
-                  }
-               }
-
-               if (!dateValid) {
-                   console.warn(`SoilDataTable Snapshot: Doc ${doc.id} has invalid date after all checks, skipping.`);
-                   return; // Skip if date is ultimately invalid
-               }
-
-               if (!docData.measurementType) {
-                   console.warn(`SoilDataTable Snapshot: Document ${doc.id} missing measurementType, skipping.`);
-                   return;
-               }
-
-               const entry: SoilData & { id: string } = {
-                    id: doc.id,
-                    userId: docData.userId || user.uid,
-                    date: date, // Use the validated/converted Timestamp
-                    location: docData.location,
-                    locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
-                    latitude: docData.latitude,
-                    longitude: docData.longitude,
-                    measurementType: docData.measurementType,
-                    vessScore: docData.vessScore,
-                    sand: docData.sand,
-                    clay: docData.clay,
-                    silt: docData.silt,
-                    sandPercent: docData.sandPercent,
-                    clayPercent: docData.clayPercent,
-                    siltPercent: docData.siltPercent,
-                    privacy: docData.privacy || 'private',
-                };
-                processedData.push(entry);
-                // console.log(`SoilDataTable Snapshot: Pushed entry ${index + 1}/${querySnapshot.size} (ID: ${doc.id}):`, entry);
-            });
-            console.log("SoilDataTable Snapshot: Raw documents data:", rawDocsData); // Log all raw data fetched
-            console.log("SoilDataTable Snapshot: Finished processing. Processed data count:", processedData.length);
-            setSoilData(processedData);
-            setIsLoading(false);
-            setError(null); // Clear error on successful fetch
-          },
-          (err) => {
-            console.error('SoilDataTable Snapshot Error:', err);
-            setError(`Failed to fetch soil data: ${err.message}. Check console.`);
-            toast({
-              variant: 'destructive',
-              title: 'Error Loading Data',
-              description: 'Could not load your soil data. Please check your connection or try again later.',
-            });
-            setIsLoading(false);
-            setSoilData([]); // Clear data on error
-          }
-        );
-
-        // Cleanup subscription on unmount
-        return () => {
-            console.log("SoilDataTable Effect Cleanup: Unsubscribing from Firestore listener for path:", dataPath);
-            unsubscribe();
-        };
-    }, 100); // 100ms delay
-
-    return () => clearTimeout(timer); // Clear timer on unmount
-
-  }, [user, db, toast]); // Rerun when user, db instance, or toast changes
-
-
-  const openEditDialog = (data: SoilData & { id: string }) => {
-    setSelectedData(data);
-    setIsEditDialogOpen(true);
+  // Handle page changes
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   };
 
-  const openDeleteDialog = (data: SoilData & { id: string }) => {
-    setSelectedData(data);
-    setIsDeleteDialogOpen(true);
-  };
-
-  const handleDelete = async () => {
-    if (!selectedData || !user) return;
-    setIsLoading(true); // Indicate loading during delete
-    try {
-      const docRef = doc(db, `users/${user.uid}/soilData`, selectedData.id);
-      await deleteDoc(docRef);
-      toast({ title: 'Success', description: 'Soil data entry deleted.' });
-      setIsDeleteDialogOpen(false);
-      setSelectedData(null);
-    } catch (error: any) {
-      console.error('SoilDataTable: Error deleting data:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Error Deleting Data',
-        description: error.message || 'Could not delete entry. Please try again.',
-      });
-    } finally {
-        setIsLoading(false); // Stop loading indicator
-    }
-  };
-
-   // Filter logic with extensive logging
-   const filteredData = useMemo(() => {
-       console.log("SoilDataTable Filtering: Starting filter calculation.");
-       console.log("SoilDataTable Filtering: Current soilData state:", soilData);
-       console.log("SoilDataTable Filtering: Current dateRange state:", dateRange);
-
-       if (!Array.isArray(soilData)) {
-           console.error("SoilDataTable Filtering: soilData is not an array!", soilData);
-           return [];
-       }
-
-       const filtered = soilData.filter((item, index) => {
-           // console.log(`SoilDataTable Filtering: Checking item ${index + 1}/${soilData.length} (ID: ${item.id})`);
-
-           if (!item.date || !(item.date instanceof Timestamp)) {
-               console.warn(`SoilDataTable Filtering: Item ID ${item.id} skipped - missing or non-Timestamp date:`, item.date);
-               return false;
-           }
-           const itemDate = item.date.toDate();
-           if (!isValid(itemDate)) {
-               console.warn(`SoilDataTable Filtering: Item ID ${item.id} skipped - invalid JS date after conversion:`, itemDate);
-               return false;
-           }
-
-           const fromDate = dateRange?.from;
-           const toDate = dateRange?.to;
-
-            // console.log(`SoilDataTable Filtering: Item ID ${item.id}: Item Date: ${itemDate.toISOString()}`);
-
-           // If no date range is set, include all valid items
-           if (!fromDate && !toDate) {
-                // console.log(`SoilDataTable Filtering: Item ID ${item.id}: Included (no date range filter).`);
-                return true;
-           }
-
-           // Adjust range for full day comparison
-           const startOfDayFrom = fromDate ? new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), 0, 0, 0, 0) : null;
-           const endOfDayTo = toDate ? new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate(), 23, 59, 59, 999) : null;
-
-           // console.log(`SoilDataTable Filtering: Item ID ${item.id}: Filter From: ${startOfDayFrom?.toISOString() ?? 'N/A'}, Filter To: ${endOfDayTo?.toISOString() ?? 'N/A'}`);
-
-           const isAfterFrom = startOfDayFrom ? itemDate >= startOfDayFrom : true;
-           const isBeforeTo = endOfDayTo ? itemDate <= endOfDayTo : true;
-
-           const included = isAfterFrom && isBeforeTo;
-           // console.log(`SoilDataTable Filtering: Item ID ${item.id}: isAfterFrom=${isAfterFrom}, isBeforeTo=${isBeforeTo}. Included=${included}`);
-           return included;
-       });
-
-       console.log("SoilDataTable Filtering: Filtering complete. Filtered data length:", filtered.length);
-       console.log("SoilDataTable Filtering: Filtered data:", filtered);
-       return filtered;
-   }, [soilData, dateRange]);
-
-
-   if (isLoading && soilData.length === 0) {
-    return (
-       <div className="flex justify-center items-center py-10">
-         <LoadingSpinner />
-         <p className="ml-2">Loading your soil data...</p>
-       </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
-         <AlertTriangle className="h-5 w-5" />
-         <div>
-            <p className="font-semibold">Error Loading Data</p>
-            <p>{error}</p>
-         </div>
-      </div>
-    );
-  }
-
-  // This case means fetching finished (isLoading=false), there's no error, but soilData is empty.
-  // We handle the specific message within the table body now.
-
+   console.log("SoilDataTable: Rendering table with paginated data:", paginatedData); // Debug: Log data being rendered
 
   return (
-    <div className="space-y-4">
-      {/* Date Range Filter */}
-       <div className="flex justify-end mb-4">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button
-              id="date"
-              variant={"outline"}
-              className="w-full sm:w-[300px] justify-start text-left font-normal"
-            >
-              <CalendarIcon className="mr-2 h-4 w-4" />
-              {dateRange?.from ? (
-                dateRange.to ? (
-                  <>
-                    {format(dateRange.from, "LLL dd, y")} -{" "}
-                    {format(dateRange.to, "LLL dd, y")}
-                  </>
-                ) : (
-                  format(dateRange.from, "LLL dd, y")
-                )
+    <TooltipProvider>
+      <div className="space-y-4">
+        {/* Filtering Controls */}
+        <div className="flex flex-col sm:flex-row gap-4 items-center">
+          <Input
+            type="text"
+            placeholder="Filter by Location/GPS..."
+            value={filterLocation}
+            onChange={(e) => { setFilterLocation(e.target.value); setCurrentPage(1); }} // Reset page on filter change
+            className="max-w-xs flex-grow"
+          />
+          <Select
+            value={filterType}
+            onValueChange={(value: 'all' | 'vess' | 'composition') => { setFilterType(value); setCurrentPage(1); }} // Reset page on filter change
+          >
+            <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectValue placeholder="Filter by Type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
+              <SelectItem value="vess">VESS Score</SelectItem>
+              <SelectItem value="composition">Composition</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Data Table */}
+        <div className="overflow-x-auto rounded-md border shadow-sm">
+          <Table>
+            <TableCaption>
+                {filteredData.length === 0 ? 'No soil data entries found.' : `Showing ${paginatedData.length} of ${filteredData.length} entries.`}
+             </TableCaption>
+            <TableHeader>
+              <TableRow>
+                 <TableHead className="w-[120px]"> <Calendar className="inline-block mr-1 h-4 w-4" /> Date</TableHead>
+                 <TableHead> <MapPin className="inline-block mr-1 h-4 w-4" /> Location</TableHead>
+                 <TableHead className="w-[100px]">Type</TableHead>
+                 <TableHead className="text-center w-[100px]">VESS</TableHead>
+                 <TableHead className="text-center w-[100px]"><Tooltip><TooltipTrigger>Sand</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
+                 <TableHead className="text-center w-[100px]"><Tooltip><TooltipTrigger>Clay</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
+                 <TableHead className="text-center w-[100px]"><Tooltip><TooltipTrigger>Silt</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
+                 <TableHead className="text-center w-[80px]">👁️‍🗨️</TableHead>
+                 {/* Add Actions column if needed */}
+                 {/* <TableHead className="text-right w-[100px]">Actions</TableHead> */}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {paginatedData.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center h-24 text-muted-foreground">
+                    {validData.length > 0 ? 'No results match your filters.' : 'No data recorded yet. Go to "Add Data" to start.'}
+                  </TableCell>
+                </TableRow>
               ) : (
-                <span>Pick a date range</span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="end">
-            <Calendar
-              initialFocus
-              mode="range"
-              defaultMonth={dateRange?.from}
-              selected={dateRange}
-              onSelect={(newRange) => {
-                 const updatedRange = { ...newRange };
-                 if (updatedRange?.to) {
-                    updatedRange.to = new Date(updatedRange.to.getFullYear(), updatedRange.to.getMonth(), updatedRange.to.getDate(), 23, 59, 59, 999);
-                 }
-                 setDateRange(updatedRange);
-                 console.log("SoilDataTable: Date range selected via Calendar:", updatedRange);
-              }}
-              numberOfMonths={2}
-               disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
-            />
-          </PopoverContent>
-        </Popover>
-       </div>
-
-
-       <div className="rounded-md border shadow-sm bg-card">
-         <Table>
-           <TableHeader>
-             <TableRow>
-               <TableHead>Date</TableHead>
-               <TableHead>Location</TableHead>
-               <TableHead>Type</TableHead>
-               <TableHead>Value(s)</TableHead>
-               <TableHead>Privacy</TableHead>
-               <TableHead className="text-right">Actions</TableHead>
-             </TableRow>
-           </TableHeader>
-           <TableBody>
-             {isLoading ? ( // Show loading only when actively fetching
-                <TableRow>
-                   <TableCell colSpan={6} className="h-24 text-center">
-                      <LoadingSpinner />
-                      <p className="mt-2 text-muted-foreground">Loading data...</p>
-                   </TableCell>
-                </TableRow>
-             ) : filteredData.length === 0 ? ( // Explicitly check filtered data length *after* loading is false
-                <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    {soilData.length === 0 ? 'No soil data entries found. Add your first sample using the "Add Data" tab.' : 'No data matches the selected date range. Try adjusting the dates.'}
-                  </TableCell>
-                </TableRow>
-             ) : (
-               filteredData.map((data, index) => ( // Log mapping
-                 <TableRow key={data.id}>
-                   <TableCell className="font-medium whitespace-nowrap">
-                     {/* Already validated date in effect/filter */}
-                     {format(data.date.toDate(), 'PP')}
-                   </TableCell>
-                   <TableCell>
-                     <div className="flex items-center gap-1">
-                        {data.locationOption === 'gps' && data.latitude && data.longitude ? (
-                            <>
-                                <MapPin className="h-4 w-4 text-muted-foreground" />
-                                {`${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}`}
-                            </>
-                        ) : data.locationOption === 'manual' && data.location ? (
-                            <>
-                                <MapPin className="h-4 w-4 text-muted-foreground" />
-                                {data.location}
-                            </>
-                         ) : (
-                            <span className="text-muted-foreground italic">N/A</span>
-                         )}
-                      </div>
-                  </TableCell>
-                  <TableCell className="capitalize">{data.measurementType}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {data.measurementType === 'vess' ? (
-                      `VESS: ${data.vessScore ?? 'N/A'}`
-                    ) : (
-                        (data.sandPercent != null || data.clayPercent != null || data.siltPercent != null)
-                        ? `S:${data.sandPercent?.toFixed(0) ?? '--'}% | C:${data.clayPercent?.toFixed(0) ?? '--'}% | Si:${data.siltPercent?.toFixed(0) ?? '--'}%`
-                        : (data.sand != null || data.clay != null || data.silt != null)
-                            ? `S:${data.sand ?? '--'}cm | C:${data.clay ?? '--'}cm | Si:${data.silt ?? '--'}cm`
-                            : 'N/A'
-                    )}
-                  </TableCell>
-                  <TableCell>
-                     <Badge variant={data.privacy === 'public' ? 'secondary' : 'outline'} className="capitalize flex items-center gap-1 w-fit">
-                       {data.privacy === 'public' ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                       {data.privacy}
-                     </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="h-8 w-8 p-0" disabled={isLoading}>
-                          <span className="sr-only">Open menu</span>
-                          <MoreHorizontal className="h-4 w-4" />
+                paginatedData.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>
+                       {entry.date && isValid(entry.date.toDate())
+                          ? format(entry.date.toDate(), 'PP') // Format date nicely (e.g., Mar 17, 2024)
+                         : 'Invalid Date'}
+                     </TableCell>
+                    <TableCell>
+                      {entry.locationOption === 'manual' ? (
+                        entry.location || 'N/A'
+                      ) : entry.locationOption === 'gps' && entry.latitude !== undefined ? (
+                          <Tooltip>
+                              <TooltipTrigger className="cursor-help">
+                                 GPS Coords
+                             </TooltipTrigger>
+                             <TooltipContent>
+                                 <p>Lat: {entry.latitude.toFixed(5)}</p>
+                                 <p>Lon: {entry.longitude?.toFixed(5)}</p>
+                             </TooltipContent>
+                         </Tooltip>
+                      ) : (
+                        'N/A'
+                      )}
+                    </TableCell>
+                    <TableCell>
+                       {entry.measurementType === 'vess' ? (
+                         <span className="flex items-center gap-1"><TestTubeDiagonal className="h-4 w-4 text-blue-500"/> VESS</span>
+                       ) : (
+                         <span className="flex items-center gap-1"><Sigma className="h-4 w-4 text-green-600"/> Comp.</span>
+                       )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                       {entry.measurementType === 'vess' ? entry.vessScore ?? '-' : '-'}
+                     </TableCell>
+                     {/* Composition Data - Show value and percentage */}
+                     {['sand', 'clay', 'silt'].map((comp) => (
+                       <TableCell key={comp} className="text-center">
+                         {entry.measurementType === 'composition' ? (
+                           entry[comp as keyof SoilData] !== undefined ? (
+                             <Tooltip>
+                               <TooltipTrigger className="cursor-help">
+                                 {entry[comp as keyof SoilData]} <span className="text-xs text-muted-foreground">cm</span>
+                               </TooltipTrigger>
+                               <TooltipContent>
+                                 <p>{entry[`${comp}Percent` as keyof SoilData] ?? '--'}%</p>
+                               </TooltipContent>
+                             </Tooltip>
+                           ) : '-'
+                         ) : '-'}
+                       </TableCell>
+                     ))}
+                     <TableCell className="text-center">{entry.privacy === 'public' ? '🌍' : '🔒'}</TableCell>
+                     {/* Add Actions Cell if needed */}
+                     {/* <TableCell className="text-right">
+                        <Button variant="ghost" size="icon">
+                            <Edit className="h-4 w-4" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEditDialog(data)} disabled={isLoading}>
-                          <Pencil className="mr-2 h-4 w-4" /> Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openDeleteDialog(data)} className="text-destructive focus:text-destructive focus:bg-destructive/10" disabled={isLoading}>
-                           <Trash2 className="mr-2 h-4 w-4" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-             )}
-           </TableBody>
-         </Table>
+                         <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                            <Trash2 className="h-4 w-4" />
+                         </Button>
+                     </TableCell> */}
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+           <div className="flex items-center justify-end space-x-2 pt-4">
+             <Button
+               variant="outline"
+               size="sm"
+               onClick={() => goToPage(currentPage - 1)}
+               disabled={currentPage === 1}
+             >
+               Previous
+             </Button>
+             <span className="text-sm text-muted-foreground">
+                Page {currentPage} of {totalPages}
+             </span>
+             <Button
+               variant="outline"
+               size="sm"
+               onClick={() => goToPage(currentPage + 1)}
+               disabled={currentPage === totalPages}
+             >
+               Next
+             </Button>
+           </div>
+         )}
       </div>
-
-      {/* Edit Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] bg-secondary">
-          <DialogHeader>
-            <DialogTitle>Edit Soil Data Entry</DialogTitle>
-            <DialogDescription>
-              Update the details for this soil sample recorded on {selectedData && selectedData.date instanceof Timestamp && isValid(selectedData.date.toDate()) ? format(selectedData.date.toDate(), 'PP') : 'N/A'}.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedData && (
-             <SoilDataForm
-                key={selectedData.id} // Ensure form re-renders with new initial data
-                initialData={selectedData}
-                onFormSubmit={() => {
-                  setIsEditDialogOpen(false);
-                  setSelectedData(null); // Clear selection after submit
-                }}
-             />
-          )}
-        </DialogContent>
-      </Dialog>
-
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Are you sure?</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. This will permanently delete the soil data entry dated <span className="font-semibold">{selectedData && selectedData.date instanceof Timestamp && isValid(selectedData.date.toDate()) ? format(selectedData.date.toDate(), 'PP') : 'N/A'}</span>.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)} disabled={isLoading}>Cancel</Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={isLoading}>
-                {isLoading ? <LoadingSpinner size={16}/> : <Trash2 className="mr-2 h-4 w-4" />}
-                {isLoading ? 'Deleting...' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </TooltipProvider>
   );
 }

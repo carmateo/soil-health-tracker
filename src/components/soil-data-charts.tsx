@@ -1,15 +1,12 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { useFirebase } from '@/context/firebase-context';
-import { useAuth } from '@/context/auth-context';
-import { collection, query, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import type { SoilData } from '@/types/soil';
-import { format, isValid, parseISO } from 'date-fns';
+import { format, isValid } from 'date-fns';
 import { LoadingSpinner } from './loading-spinner';
 import { AlertTriangle } from 'lucide-react';
 
@@ -31,125 +28,32 @@ interface CompositionChartData {
 // Helper function to check if a value is a valid number
 const isValidNumber = (value: any): value is number => typeof value === 'number' && !isNaN(value);
 
+interface SoilDataChartsProps {
+  data: Array<SoilData & { id: string }>;
+  // Removed isLoading and error props as they are handled by parent (Dashboard)
+}
 
-export function SoilDataCharts() {
-  const { db } = useFirebase();
-  const { user } = useAuth();
-  const [soilData, setSoilData] = useState<Array<SoilData & { id: string }>>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function SoilDataCharts({ data }: SoilDataChartsProps) {
 
-  useEffect(() => {
-    if (!user) {
-      setIsLoading(false);
-      setSoilData([]);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    const dataPath = `users/${user.uid}/soilData`;
-     console.log("SoilDataCharts: Setting up charts listener for path:", dataPath); // Debug log
-
-    const q = query(
-      collection(db, dataPath),
-      orderBy('date', 'asc') // Order by date ascending for charts
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (querySnapshot) => {
-         console.log(`SoilDataCharts: Charts snapshot received: ${querySnapshot.size} documents.`); // Debug log
-        const data: Array<SoilData & { id: string }> = [];
-        querySnapshot.forEach((doc) => {
-            const docData = doc.data();
-            console.log(`SoilDataCharts: Charts processing doc ${doc.id}:`, docData); // Debug log
-
-           // Ensure the date field is a Firestore Timestamp and valid
-           let date = docData.date;
-            if (!(date instanceof Timestamp)) {
-               console.warn(`SoilDataCharts: Charts: Doc ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
-               try {
-                 const potentialDate = new Date(date);
-                 if (isValid(potentialDate)) {
-                    date = Timestamp.fromDate(potentialDate);
-                     console.log(`SoilDataCharts: Charts: Converted date for doc ${doc.id} to Timestamp:`, date); // Debug log
-                 } else {
-                    console.warn(`SoilDataCharts: Charts: Doc ${doc.id} has invalid date format, skipping.`);
-                    return;
-                 }
-               } catch (e) {
-                 console.error(`SoilDataCharts: Charts: Error converting date for doc ${doc.id}:`, e);
-                 return;
-               }
-           }
-           // Further validation on the converted Timestamp's date
-            const jsDate = date.toDate();
-            if (!isValid(jsDate)) {
-                console.warn(`SoilDataCharts: Charts: Doc ${doc.id} date is invalid after conversion, skipping.`);
-                return;
-            }
-
-
-            // Minimal structure check
-             if (!docData.measurementType) {
-                console.warn(`SoilDataCharts: Charts: Doc ${doc.id} missing measurementType, skipping.`);
-                return;
-            }
-
-           data.push({
-             id: doc.id,
-              userId: docData.userId || user.uid,
-              date: date, // Use the validated/converted Timestamp
-              location: docData.location,
-              locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
-              latitude: docData.latitude,
-              longitude: docData.longitude,
-              measurementType: docData.measurementType,
-              vessScore: docData.vessScore,
-              sand: docData.sand,
-              clay: docData.clay,
-              silt: docData.silt,
-              sandPercent: docData.sandPercent,
-              clayPercent: docData.clayPercent,
-              siltPercent: docData.siltPercent,
-              privacy: docData.privacy || 'private',
-           });
-        });
-         console.log("SoilDataCharts: Charts processed data:", data); // Debug log
-        setSoilData(data);
-        setIsLoading(false);
-      },
-      (err) => {
-        console.error('SoilDataCharts: Error fetching soil data for charts:', err);
-        setError('Failed to fetch soil data for charts. Check console.');
-        setIsLoading(false);
-      }
-    );
-
-    return () => {
-        console.log("SoilDataCharts: Unsubscribing from charts Firestore listener."); // Debug log
-        unsubscribe();
-    }
-  }, [user, db]);
+  // Ensure data is always an array
+  const soilData = useMemo(() => Array.isArray(data) ? data : [], [data]);
 
   const { vessChartData, compositionChartData } = useMemo(() => {
     const vessData: VessChartData[] = [];
     const compositionData: CompositionChartData[] = [];
-     console.log("SoilDataCharts: Generating chart data from processed state:", soilData); // Log chart data generation
+    console.log("SoilDataCharts: Generating chart data from props:", soilData); // Log chart data generation
 
-    soilData.forEach(item => {
-       // Date is already validated as Timestamp in useEffect
+    // Sort data by date ascending for charts *before* processing
+    const sortedData = [...soilData].sort((a, b) => a.date.toDate().getTime() - b.date.toDate().getTime());
+
+    sortedData.forEach(item => {
+       // Date is already validated as Timestamp in Dashboard
        if (!item.date || !isValid(item.date.toDate())) {
            console.warn(`SoilDataCharts: Skipping item ${item.id} in chart generation due to invalid date.`);
            return;
        }
        const itemDate = item.date.toDate();
-
        const dateStr = format(itemDate, 'MMM d, yy');
-
-       // console.log(`SoilDataCharts: Processing item ${item.id} for charts: Type=${item.measurementType}, VESS=${item.vessScore}, SandP=${item.sandPercent}`);
 
        if (item.measurementType === 'vess' && isValidNumber(item.vessScore)) {
          vessData.push({ date: dateStr, vessScore: item.vessScore, originalDate: itemDate });
@@ -169,48 +73,35 @@ export function SoilDataCharts() {
                originalDate: itemDate,
              });
            } else {
-               console.warn(`SoilDataCharts: Skipping composition chart entry for ${item.id} due to missing/invalid percentage data.`)
+               console.warn(`SoilDataCharts: Skipping composition chart entry for ${item.id} due to missing/invalid percentage data.`);
            }
-       } else {
-            // console.log(`SoilDataCharts: Item ${item.id} did not match chart criteria.`);
        }
     });
 
-    // Sort explicitly by original date just in case Firestore order isn't perfect or data gets reshuffled
-    vessData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime());
-    compositionData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime());
-
+    // Data is already sorted by date
     console.log("SoilDataCharts: Generated VESS Chart Data:", vessData);
     console.log("SoilDataCharts: Generated Composition Chart Data:", compositionData);
 
     return { vessChartData: vessData, compositionChartData: compositionData };
-  }, [soilData]);
+  }, [soilData]); // Depend only on the prop data
 
-  if (isLoading && soilData.length === 0) { // Show loading only initially
-    return (
-      <div className="flex justify-center items-center py-10">
-        <LoadingSpinner />
-        <p className="ml-2">Loading chart data...</p>
-      </div>
-    );
-  }
 
-  if (error) {
-    return (
-      <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
-         <AlertTriangle className="h-5 w-5" />
-         <div>
-            <p className="font-semibold">Error Loading Charts</p>
-            <p>{error}</p>
-         </div>
-      </div>
-    );
-  }
+  // Loading and error states are now handled by the parent Dashboard component.
+  // We just need to check if there's data to display.
 
-  const hasVessData = vessChartData.length > 0; // Allow chart with one point
-  const hasCompositionData = compositionChartData.length > 0; // Allow chart with one point
+  const hasVessData = vessChartData.length > 0;
+  const hasCompositionData = compositionChartData.length > 0;
   const needsMoreVessData = vessChartData.length < 2;
   const needsMoreCompositionData = compositionChartData.length < 2;
+
+  // Check if *any* data was passed, even if it didn't result in chart data
+  if (soilData.length === 0) {
+     return (
+        <p className="text-muted-foreground text-center py-10">
+            No data available to display charts. Add some soil entries first.
+        </p>
+     )
+  }
 
 
   return (
@@ -254,7 +145,7 @@ export function SoilDataCharts() {
             </ChartContainer>
           ) : (
             <p className="text-muted-foreground text-center py-10">
-                No VESS score data available. Add some VESS entries first.
+                No VESS score data available in the selected entries.
             </p>
           )}
            {hasVessData && needsMoreVessData && (
@@ -285,7 +176,7 @@ export function SoilDataCharts() {
                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd"/>
                      {/* Y axis represents percentage 0-1 when stackOffset="expand" */}
                      <YAxis type="number" domain={[0, 1]} tickFormatter={(value) => `${Math.round(value * 100)}%`} tickLine={false} axisLine={false} tickMargin={8} width={40} />
-                     <ChartTooltip content={<ChartTooltipContent indicator="dot" formatter={(value) => `${(value * 100).toFixed(0)}%`} />} cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }}/>
+                     <ChartTooltip content={<ChartTooltipContent indicator="dot" formatter={(value, name, props) => [`${(value * 100).toFixed(0)}%`, name]} />} cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }}/>
                      <ChartLegend content={<ChartLegendContent verticalAlign="bottom" wrapperStyle={{ bottom: 0, left: 20 }}/>} />
                      <defs>
                         <linearGradient id="fillSand" x1="0" y1="0" x2="0" y2="1">
@@ -336,7 +227,7 @@ export function SoilDataCharts() {
             </ChartContainer>
            ) : (
              <p className="text-muted-foreground text-center py-10">
-                No soil composition data (with percentages) available. Add some composition entries first.
+                No soil composition data (with percentages) available in the selected entries.
              </p>
            )}
             {hasCompositionData && needsMoreCompositionData && (
