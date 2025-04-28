@@ -65,14 +65,15 @@ const compositionFormSchema = baseSchema.extend({
     path: ["sand"], // Assign error to one field or create a custom path if needed
 });
 
-// Combine schemas using discriminated union
-const formSchema = z.discriminatedUnion('measurementType', [
+// Combine schemas using discriminated union, dentro de una función
+const getFormSchema = () => z.discriminatedUnion('measurementType', [
   vessFormSchema,
   compositionFormSchema,
 ]);
 
 
-type SoilFormInputs = z.infer<typeof formSchema>;
+
+type SoilFormInputs = z.infer<ReturnType<typeof getFormSchema>>;
 
 const VESS_IMAGES = [
   { score: 1, url: 'https://picsum.photos/seed/vess1/200', description: 'Sq1: Very poor structure, compact, no aggregation.' },
@@ -139,7 +140,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     // Default for new form (starts as 'vess')
     return {
         ...baseDefaults,
-        measurementType: 'vess',
+        measurementType: 'vess', // Ensure discriminator is set
         vessScore: 3,
         sand: null,
         clay: null,
@@ -147,11 +148,10 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       };
   };
 
-
   const form = useForm<SoilFormInputs>({
-    resolver: zodResolver(formSchema),
-    defaultValues: getDefaultValues(initialData, settings),
-     mode: 'onChange', // Validate on change for better UX
+    resolver: zodResolver(getFormSchema()),
+    defaultValues: getDefaultValues(initialData, settings), // Let getDefaultValues handle all defaults
+    mode: 'onChange',
   });
 
    // Watch relevant fields
@@ -164,6 +164,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
   useEffect(() => {
     // Reset form with appropriate defaults when initialData or settings change
+    // Make sure the reset value includes the measurementType
     form.reset(getDefaultValues(initialData, settings));
   }, [initialData, settings, form]); // Add form to dependency array for reset
 
@@ -451,7 +452,13 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         // Reset other measurement type fields when switching
                         // Get current form values to preserve data where possible
                          const currentValues = form.getValues();
-                         const newDefaults = getDefaultValues({ ...currentValues, measurementType: newValue } as any, settings); // Cast needed as we only change type temporarily
+                         // Create a temporary object with the new measurementType to pass to getDefaultValues
+                         const tempObjectForDefaults = {
+                            ...currentValues,
+                            measurementType: newValue
+                         } as SoilData & { id: string }; // Cast needed as we only change type temporarily
+
+                         const newDefaults = getDefaultValues(tempObjectForDefaults, settings);
 
                         // Reset the form with new defaults based on the selected type
                          form.reset({
@@ -659,5 +666,3 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     </Form>
   );
 }
-
-    
