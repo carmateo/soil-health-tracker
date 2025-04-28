@@ -29,7 +29,7 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import type { SoilData } from '@/types/soil';
+import type { SoilData, UserSettings as UserSettingsType } from '@/types/soil';
 import Image from 'next/image';
 
 
@@ -37,8 +37,8 @@ import Image from 'next/image';
 const baseSchema = z.object({
   date: z.date({ required_error: "Date is required." }),
   location: z.string().optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
+  latitude: z.number().optional().nullable(), // Allow null
+  longitude: z.number().optional().nullable(), // Allow null
   privacy: z.enum(['public', 'private']),
 });
 
@@ -55,9 +55,9 @@ const vessFormSchema = baseSchema.extend({
 // Composition measurement specific schema - extending base
 const compositionFormSchema = baseSchema.extend({
   measurementType: z.literal('composition'),
-  sand: z.number({ required_error: "Sand (cm) is required." }).min(0),
-  clay: z.number({ required_error: "Clay (cm) is required." }).min(0),
-  silt: z.number({ required_error: "Silt (cm) is required." }).min(0),
+  sand: z.number({ required_error: "Sand (cm) is required." }).min(0).nullable(), // Allow null initially maybe? No, required means non-null/non-undefined
+  clay: z.number({ required_error: "Clay (cm) is required." }).min(0).nullable(),
+  silt: z.number({ required_error: "Silt (cm) is required." }).min(0).nullable(),
   // Ensure VESS score is explicitly optional/nullable for this type
   vessScore: z.number().optional().nullable(),
 }).refine(data => (data.sand ?? 0) + (data.clay ?? 0) + (data.silt ?? 0) > 0, {
@@ -96,34 +96,61 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
+  // Function to generate default values based on measurement type
+  const getDefaultValues = (data?: SoilData & { id: string }, userSettings?: UserSettingsType | null): SoilFormInputs => {
+    const baseDefaults = {
+        date: new Date(),
+        privacy: userSettings?.defaultPrivacy || 'private',
+        location: '',
+        latitude: undefined,
+        longitude: undefined,
+    };
+
+    if (data) {
+      const commonData = {
+        ...baseDefaults,
+        date: data.date.toDate(),
+        location: data.location ?? '',
+        latitude: data.latitude ?? undefined,
+        longitude: data.longitude ?? undefined,
+        privacy: data.privacy,
+      };
+      if (data.measurementType === 'vess') {
+        return {
+          ...commonData,
+          measurementType: 'vess',
+          vessScore: data.vessScore ?? 3, // Provide default if null/undefined
+          sand: null,
+          clay: null,
+          silt: null,
+        };
+      } else if (data.measurementType === 'composition') {
+        return {
+          ...commonData,
+          measurementType: 'composition',
+          sand: data.sand ?? null, // Use null as default for nullable numbers
+          clay: data.clay ?? null,
+          silt: data.silt ?? null,
+          vessScore: null,
+        };
+      }
+    }
+
+    // Default for new form (starts as 'vess')
+    return {
+        ...baseDefaults,
+        measurementType: 'vess',
+        vessScore: 3,
+        sand: null,
+        clay: null,
+        silt: null,
+      };
+  };
+
+
   const form = useForm<SoilFormInputs>({
     resolver: zodResolver(formSchema),
-    defaultValues: initialData ? {
-        ...initialData,
-        date: initialData.date.toDate(), // Convert Timestamp to Date
-        measurementType: initialData.measurementType || 'vess', // Ensure measurementType exists
-        vessScore: initialData.vessScore ?? undefined,
-        sand: initialData.sand ?? undefined,
-        clay: initialData.clay ?? undefined,
-        silt: initialData.silt ?? undefined,
-        // Add null defaults for fields potentially missing in initialData based on type
-        ...(initialData.measurementType === 'vess' ? { sand: null, clay: null, silt: null } : { vessScore: null }),
-      } : {
-      date: new Date(),
-      measurementType: 'vess',
-      vessScore: 3, // Default VESS score
-      privacy: settings?.defaultPrivacy || 'private',
-      location: '',
-      sand: undefined,
-      clay: undefined,
-      silt: undefined,
-      latitude: undefined,
-      longitude: undefined,
-      // Add null defaults for fields not relevant to the initial default 'vess' type
-      sand: null,
-      clay: null,
-      silt: null,
-    },
+    defaultValues: getDefaultValues(initialData, settings),
      mode: 'onChange', // Validate on change for better UX
   });
 
@@ -136,11 +163,9 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
 
   useEffect(() => {
-    // Set default privacy when settings load after initial mount
-    if (!initialData && settings && form.getValues('privacy') !== settings.defaultPrivacy) {
-      form.setValue('privacy', settings.defaultPrivacy);
-    }
-  }, [settings, form, initialData]);
+    // Reset form with appropriate defaults when initialData or settings change
+    form.reset(getDefaultValues(initialData, settings));
+  }, [initialData, settings, form]); // Add form to dependency array for reset
 
   const calculatePercentages = useCallback(() => {
      if (watchedMeasurementType === 'composition') {
@@ -227,41 +252,42 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
             userId: user.uid,
             date: Timestamp.fromDate(data.date),
             location: data.location || undefined,
-            latitude: data.latitude || undefined,
-            longitude: data.longitude || undefined,
+            latitude: data.latitude ?? undefined, // Use ?? for nullable fields
+            longitude: data.longitude ?? undefined,
             measurementType: 'vess',
             vessScore: data.vessScore,
             privacy: data.privacy,
             // Explicitly set composition fields to null/undefined for VESS type
-            sand: undefined,
-            clay: undefined,
-            silt: undefined,
-            sandPercent: undefined,
+            sand: null,
+            clay: null,
+            silt: null,
+            sandPercent: undefined, // Percentages only exist for composition
             clayPercent: undefined,
             siltPercent: undefined,
         };
     } else { // measurementType is 'composition'
+        const calculatedPercentages = calculatePercentages(); // Recalculate on submit just in case
         submissionData = {
             userId: user.uid,
             date: Timestamp.fromDate(data.date),
             location: data.location || undefined,
-            latitude: data.latitude || undefined,
-            longitude: data.longitude || undefined,
+            latitude: data.latitude ?? undefined,
+            longitude: data.longitude ?? undefined,
             measurementType: 'composition',
-            sand: data.sand,
-            clay: data.clay,
-            silt: data.silt,
-            sandPercent: sandPercent,
-            clayPercent: clayPercent,
-            siltPercent: siltPercent,
+            sand: data.sand ?? null, // Use ?? null for nullable numbers
+            clay: data.clay ?? null,
+            silt: data.silt ?? null,
+            sandPercent: calculatedPercentages.sandPercent,
+            clayPercent: calculatedPercentages.clayPercent,
+            siltPercent: calculatedPercentages.siltPercent,
             privacy: data.privacy,
             // Explicitly set VESS score to null/undefined for composition type
-            vessScore: undefined,
+            vessScore: null,
         };
     }
 
 
-     // Remove undefined fields before saving (optional, Firestore handles undefined)
+     // Remove undefined fields before saving (Firestore handles undefined well, but this ensures cleaner data)
     Object.keys(submissionData).forEach(key => {
       const K = key as keyof typeof submissionData;
       if (submissionData[K] === undefined) {
@@ -282,22 +308,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
          // Add new document
         await addDoc(collection(db, `users/${user.uid}/soilData`), submissionData);
         toast({ title: 'Success', description: 'Soil data saved successfully.' });
-        form.reset({ // Reset form to defaults after successful ADD
-           date: new Date(),
-           measurementType: 'vess',
-           vessScore: 3,
-           privacy: settings?.defaultPrivacy || 'private',
-           location: '',
-           sand: undefined, // Reset composition fields
-           clay: undefined,
-           silt: undefined,
-           latitude: undefined,
-           longitude: undefined,
-           // Add null defaults for fields not relevant to the initial default 'vess' type
-           sand: null,
-           clay: null,
-           silt: null,
-        });
+        form.reset(getDefaultValues(undefined, settings)); // Reset form to initial new state
          setStep(1); // Go back to step 1 after adding
        }
 
@@ -391,6 +402,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                    <FormItem className="flex-1">
                      <FormLabel>Latitude</FormLabel>
                      <FormControl>
+                       {/* Allow empty string, convert to number or undefined */}
                        <Input type="number" step="any" placeholder="e.g., 34.0522" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
                      </FormControl>
                      <FormMessage />
@@ -404,6 +416,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                    <FormItem className="flex-1">
                      <FormLabel>Longitude</FormLabel>
                      <FormControl>
+                        {/* Allow empty string, convert to number or undefined */}
                        <Input type="number" step="any" placeholder="e.g., -118.2437" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
                      </FormControl>
                      <FormMessage />
@@ -436,17 +449,20 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         const newValue = value as 'vess' | 'composition';
                         field.onChange(newValue);
                         // Reset other measurement type fields when switching
-                        if (newValue === 'vess') {
-                           form.setValue('sand', null); // Use null for Zod compatibility
-                           form.setValue('clay', null);
-                           form.setValue('silt', null);
-                           form.setValue('vessScore', form.getValues('vessScore') || 3); // Keep or set default
-                        } else { // composition
-                           form.setValue('vessScore', null); // Use null for Zod compatibility
-                           form.setValue('sand', form.getValues('sand') ?? 0); // Keep or set default (use ?? 0)
-                           form.setValue('clay', form.getValues('clay') ?? 0);
-                           form.setValue('silt', form.getValues('silt') ?? 0);
-                        }
+                        // Get current form values to preserve data where possible
+                         const currentValues = form.getValues();
+                         const newDefaults = getDefaultValues({ ...currentValues, measurementType: newValue } as any, settings); // Cast needed as we only change type temporarily
+
+                        // Reset the form with new defaults based on the selected type
+                         form.reset({
+                             ...newDefaults, // Use the full default structure for the new type
+                             // Keep step 1 data
+                             date: currentValues.date,
+                             location: currentValues.location,
+                             latitude: currentValues.latitude,
+                             longitude: currentValues.longitude,
+                             privacy: currentValues.privacy,
+                         });
                          // Trigger validation after resetting potentially required fields
                          form.trigger();
                       }}
@@ -533,8 +549,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                        <FormItem>
                          <FormLabel>Sand (cm)</FormLabel>
                          <FormControl>
-                           {/* Ensure value is '' if undefined/null, and convert back to number/undefined */}
-                           <Input type="number" min="0" step="0.1" placeholder="e.g., 10.5" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
+                           {/* Ensure value is '' if null, and convert back to number or null */}
+                           <Input type="number" min="0" step="0.1" placeholder="e.g., 10.5" {...field} onChange={e => field.onChange(e.target.value === '' ? null : +e.target.value)} value={field.value ?? ''} />
                          </FormControl>
                          <FormMessage />
                        </FormItem>
@@ -547,7 +563,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                        <FormItem>
                          <FormLabel>Clay (cm)</FormLabel>
                          <FormControl>
-                           <Input type="number" min="0" step="0.1" placeholder="e.g., 5.2" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
+                           <Input type="number" min="0" step="0.1" placeholder="e.g., 5.2" {...field} onChange={e => field.onChange(e.target.value === '' ? null : +e.target.value)} value={field.value ?? ''} />
                          </FormControl>
                          <FormMessage />
                        </FormItem>
@@ -560,7 +576,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                        <FormItem>
                          <FormLabel>Silt (cm)</FormLabel>
                          <FormControl>
-                           <Input type="number" min="0" step="0.1" placeholder="e.g., 4.3" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
+                           <Input type="number" min="0" step="0.1" placeholder="e.g., 4.3" {...field} onChange={e => field.onChange(e.target.value === '' ? null : +e.target.value)} value={field.value ?? ''} />
                          </FormControl>
                          <FormMessage />
                        </FormItem>
@@ -577,7 +593,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                        </div>
                    )}
                    {/* Show form-level error if sum is zero */}
-                  {form.formState.errors.sand?.type === 'custom' && (
+                  {form.formState.errors.sand?.type === 'refine' && ( // Check for refine error specifically
                     <p className="text-sm font-medium text-destructive">{form.formState.errors.sand.message}</p>
                   )}
               </div>
