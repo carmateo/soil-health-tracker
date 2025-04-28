@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { PlusCircle, Table, Settings, BarChart3, AlertTriangle } from 'lucide-react';
 import { SoilDataCharts } from '@/components/soil-data-charts';
+import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart'; // Import the new component
 import { collection, onSnapshot, query, orderBy, Timestamp } from "firebase/firestore";
 import { useFirebase } from '@/context/firebase-context';
 import type { SoilData } from '@/types/soil'; // Import the type
@@ -182,7 +183,7 @@ export default function Dashboard() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         {/* Adjusted grid layout for better responsiveness and added more margin-bottom on mobile */}
-        <TabsList className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 mb-10 sm:mb-6">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-2 mb-8 md:mb-16">
           <TabsTrigger value="addData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <PlusCircle className="h-4 w-4 sm:h-5 sm:w-5" /> Add Data
           </TabsTrigger>
@@ -237,30 +238,58 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent key="analyzeDataTab" value="analyzeData">
-          <Card className="bg-card shadow-md border-border">
-            <CardHeader>
-              <CardTitle>Data Analysis</CardTitle>
-              <CardDescription>Visualize your soil health trends over time.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* Pass the live data to charts as well */}
-               {dataLoading ? (
-                  <div className="flex justify-center items-center py-10">
-                     <LoadingSpinner /> <span className="ml-2">Loading chart data...</span>
-                  </div>
-                ) : dataError ? (
-                  <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
-                     <AlertTriangle className="h-5 w-5" />
-                     <div>
-                        <p className="font-semibold">Error Loading Charts</p>
-                        <p>{dataError}</p>
-                     </div>
-                  </div>
-                ) : (
-                  <SoilDataCharts data={soilData} />
-               )}
-            </CardContent>
-          </Card>
+          <div className="space-y-6"> {/* Add spacing between cards */}
+            {/* Original Data Trends Card */}
+            <Card className="bg-card shadow-md border-border">
+              <CardHeader>
+                <CardTitle>Data Trends</CardTitle>
+                <CardDescription>Visualize your soil health trends over time.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                 {dataLoading ? (
+                    <div className="flex justify-center items-center py-10">
+                       <LoadingSpinner /> <span className="ml-2">Loading chart data...</span>
+                    </div>
+                  ) : dataError ? (
+                    <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
+                       <AlertTriangle className="h-5 w-5" />
+                       <div>
+                          <p className="font-semibold">Error Loading Charts</p>
+                          <p>{dataError}</p>
+                       </div>
+                    </div>
+                  ) : (
+                    <SoilDataCharts data={soilData} />
+                 )}
+              </CardContent>
+            </Card>
+
+            {/* New Pedotransfer Analysis Card */}
+            {dataLoading ? (
+               <Card className="bg-card shadow-md border-border">
+                   <CardHeader><CardTitle>Pedotransfer Analysis</CardTitle></CardHeader>
+                   <CardContent className="flex justify-center items-center py-10">
+                      <LoadingSpinner /> <span className="ml-2">Loading analysis data...</span>
+                   </CardContent>
+                </Card>
+             ) : dataError ? (
+                <Card className="bg-card shadow-md border-border">
+                    <CardHeader><CardTitle>Pedotransfer Analysis</CardTitle></CardHeader>
+                    <CardContent>
+                       <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
+                           <AlertTriangle className="h-5 w-5" />
+                           <div>
+                               <p className="font-semibold">Error Loading Analysis</p>
+                               <p>{dataError}</p>
+                           </div>
+                       </div>
+                    </CardContent>
+                </Card>
+              ) : (
+                // Render the chart component, it handles its own empty/error state internally based on processed data
+                <PedotransferAnalysisChart data={soilData} />
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent key="settingsTab" value="settings">
