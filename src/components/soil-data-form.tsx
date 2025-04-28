@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -50,10 +50,15 @@ const compositionSpecificSchema = z.object({
   siltPercent: z.number().optional(),
 });
 
+// Define the individual schemas with the measurementType literal
+const vessFormSchema = baseSchema.merge(vessSpecificSchema);
+const compositionFormSchema = baseSchema.merge(compositionSpecificSchema);
+
+
 // Combine schemas using discriminated union
 const formSchema = z.discriminatedUnion('measurementType', [
-  baseSchema.merge(vessSpecificSchema),
-  baseSchema.merge(compositionSpecificSchema),
+  vessFormSchema,
+  compositionFormSchema,
 ]).refine(data => {
     // Validation for manual location
     if (data.locationOption === 'manual') {
@@ -71,11 +76,15 @@ const formSchema = z.discriminatedUnion('measurementType', [
 }).refine(data => {
     // Validation for composition measurements
     if (data.measurementType === 'composition') {
-        return (data.sand ?? 0) + (data.clay ?? 0) + (data.silt ?? 0) > 0;
+        // Check if at least one value is provided and is a number >= 0
+        const hasSand = typeof data.sand === 'number' && data.sand >= 0;
+        const hasClay = typeof data.clay === 'number' && data.clay >= 0;
+        const hasSilt = typeof data.silt === 'number' && data.silt >= 0;
+        return hasSand || hasClay || hasSilt; // At least one must be validly entered
     }
     return true;
 }, {
-    message: "At least one measurement (Sand, Clay, or Silt) must be provided for composition.",
+    message: "At least one measurement (Sand, Clay, or Silt) must be provided and non-negative for composition.",
     // Apply error to a field for visibility, e.g., sand
     // You might need to adjust error path visibility based on UX
     path: ['sand'],
@@ -127,7 +136,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       latitude: initialData?.latitude,
       longitude: initialData?.longitude,
       privacy: initialData?.privacy ?? settings?.defaultPrivacy ?? 'private',
-      measurementType: initialData?.measurementType,
+      measurementType: initialData?.measurementType ?? 'vess', // Default to vess if no initial data or type
       // Conditional defaults based on measurement type
       ...(initialData?.measurementType === 'vess'
         ? { vessScore: initialData.vessScore ?? 3 }
@@ -138,8 +147,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         : { sand: undefined, clay: undefined, silt: undefined } // Default if new or type changes
       ),
     },
-    // Validate on change or blur for better UX
-    // mode: 'onChange',
+     mode: 'onChange', // Validate on change for better UX
   });
 
   const watchMeasurementType = form.watch('measurementType');
@@ -159,8 +167,26 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
    // Handle measurement type change in form state
    useEffect(() => {
+    // Set the local state used for rendering Step 2 header
     setMeasurementType(watchMeasurementType);
-   }, [watchMeasurementType]);
+
+     // Also update the form's measurementType - this might be redundant if watch is working,
+     // but ensures consistency if there were issues with watch propagation.
+     // If the type changes, clear the values of the *other* type.
+     if (watchMeasurementType === 'vess') {
+         form.resetField('sand');
+         form.resetField('clay');
+         form.resetField('silt');
+         // Ensure VESS score has a default if it was previously undefined
+         if (form.getValues('vessScore') === undefined) {
+            form.setValue('vessScore', 3, { shouldValidate: true });
+            setSelectedVessScore(3); // Sync visual state
+         }
+     } else if (watchMeasurementType === 'composition') {
+         form.resetField('vessScore');
+     }
+
+   }, [watchMeasurementType, form]);
 
 
   const handleGetGps = () => {
@@ -240,9 +266,27 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         // Sort by largest value primarily, then by largest rounding error secondarily
         diffs.sort((a, b) => b.val - a.val || b.diff - a.diff);
 
+        // Apply the difference to the component that needs it most
         if (diffs[0].name === 'sand') sandRounded += diff;
         else if (diffs[0].name === 'clay') clayRounded += diff;
-        else siltRounded += diff;
+        else siltRounded += diff; // Default to silt if others aren't adjusted
+
+        // Ensure no percentage goes below 0 after adjustment (unlikely but possible with edge cases)
+        sandRounded = Math.max(0, sandRounded);
+        clayRounded = Math.max(0, clayRounded);
+        siltRounded = Math.max(0, siltRounded);
+
+        // Recalculate total and make final small adjustments if needed (rare)
+        totalRounded = sandRounded + clayRounded + siltRounded;
+        if (totalRounded !== 100) {
+           const finalDiff = 100 - totalRounded;
+           // Apply final adjustment to the largest component again or a default (e.g., sand)
+           const maxVal = Math.max(sandRounded, clayRounded, siltRounded);
+           if (sandRounded === maxVal) sandRounded += finalDiff;
+           else if (clayRounded === maxVal) clayRounded += finalDiff;
+           else siltRounded += finalDiff;
+        }
+
     }
 
 
@@ -272,8 +316,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         privacy: data.privacy,
         locationOption: data.locationOption, // Save the option chosen
         ...(data.locationOption === 'manual'
-            ? { location: data.manualLocation, latitude: undefined, longitude: undefined } // Clear lat/lon if manual
-            : { latitude: data.latitude, longitude: data.longitude, location: undefined } // Clear manual location if GPS
+            ? { location: data.manualLocation, latitude: null, longitude: null } // Set lat/lon to null if manual
+            : { latitude: data.latitude ?? null, longitude: data.longitude ?? null, location: null } // Set location to null if GPS, ensure lat/lon are null if undefined
         ),
       };
 
@@ -284,32 +328,40 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
           ...baseData,
           measurementType: 'vess',
           vessScore: data.vessScore,
-          // Ensure composition fields are undefined
-          sand: undefined,
-          clay: undefined,
-          silt: undefined,
-          sandPercent: undefined,
-          clayPercent: undefined,
-          siltPercent: undefined,
+          // Ensure composition fields are explicitly null or undefined
+          sand: null,
+          clay: null,
+          silt: null,
+          sandPercent: null,
+          clayPercent: null,
+          siltPercent: null,
         };
       } else if (data.measurementType === 'composition') {
           const percentages = calculatePercentages();
           finalData = {
             ...baseData,
             measurementType: 'composition',
-            sand: data.sand,
-            clay: data.clay,
-            silt: data.silt,
-            sandPercent: percentages.sandPercent,
-            clayPercent: percentages.clayPercent,
-            siltPercent: percentages.siltPercent,
-            // Ensure VESS field is undefined
-            vessScore: undefined,
+            sand: data.sand ?? null, // Ensure null if undefined
+            clay: data.clay ?? null, // Ensure null if undefined
+            silt: data.silt ?? null, // Ensure null if undefined
+            sandPercent: percentages.sandPercent ?? null, // Ensure null if undefined
+            clayPercent: percentages.clayPercent ?? null, // Ensure null if undefined
+            siltPercent: percentages.siltPercent ?? null, // Ensure null if undefined
+            // Ensure VESS field is explicitly null or undefined
+            vessScore: null,
         };
       } else {
         // This case should technically not be reachable due to Zod validation
         throw new Error("Invalid measurement type selected");
       }
+
+      // Clean finalData: Remove undefined fields before sending to Firestore
+      Object.keys(finalData).forEach(key => {
+         if ((finalData as any)[key] === undefined) {
+             (finalData as any)[key] = null; // Convert undefined to null for Firestore compatibility
+         }
+      });
+
 
       if (initialData?.id) {
          // Update existing document
@@ -318,22 +370,28 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
          toast({ title: 'Data Updated', description: 'Soil sample data successfully updated.' });
       } else {
           // Add new document
-          form.reset({ 
-            date: new Date(), 
+          const docRef = await addDoc(collection(db, `users/${user.uid}/soilData`), finalData);
+          console.log("Document written with ID: ", docRef.id);
+
+          toast({ title: 'Data Saved', description: 'New soil sample data successfully saved.' });
+
+          // Reset form to defaults AFTER successful submission
+          form.reset({
+            date: new Date(),
             locationOption: 'gps',
             manualLocation: '',
-            latitude: null, // 👈 cambiar undefined por null
-            longitude: null, // 👈 cambiar undefined por null
+            latitude: undefined, // Reset coords explicitly
+            longitude: undefined,
             privacy: settings?.defaultPrivacy ?? 'private',
-            measurementType: 'vess', // 👈 nunca poner undefined, poné un valor inicial
+            measurementType: 'vess', // Reset to default type
             vessScore: 3,
-            sand: null,
-            clay: null,
-            silt: null,
+            sand: undefined,
+            clay: undefined,
+            silt: undefined,
           });
-          
 
-          setMeasurementType('composition'); // Reset local state too
+          setMeasurementType('vess'); // Reset local state for UI
+          setSelectedVessScore(3); // Reset visual VESS score
           setStep(1); // Reset steps
       }
 
@@ -366,7 +424,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
      // Manually trigger validation for Step 1 fields
      const result = await form.trigger(step1Fields);
 
-     // Additionally check if measurementType has a value (zod validation might pass if it's initially undefined)
+     // Additionally check if measurementType has a value
      const currentMeasurementType = form.getValues('measurementType');
 
      if (result && currentMeasurementType) {
@@ -374,6 +432,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         setStep(2);
      } else {
          if (!currentMeasurementType) {
+             // Set error manually if measurementType is still missing
              form.setError('measurementType', { type: 'manual', message: 'Please select a measurement type.' });
          }
         // Triggering validation should show errors in the form fields
@@ -382,7 +441,14 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   };
   const prevStep = () => setStep(1);
 
-  const percentages = watchMeasurementType === 'composition' ? calculatePercentages() : null;
+  // Recalculate percentages whenever relevant inputs change
+   const percentages = useMemo(() => {
+        if (watchMeasurementType === 'composition') {
+             return calculatePercentages();
+        }
+        return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [watchMeasurementType, watchSand, watchClay, watchSilt, form]); // Recalculate when type or values change
 
 
   return (
@@ -446,8 +512,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     handleGetGps();
                                 }
                             } else {
-                                form.setValue('latitude', undefined, { shouldValidate: true }); // Clear and validate
-                                form.setValue('longitude', undefined, { shouldValidate: true }); // Clear and validate
+                                form.setValue('latitude', undefined, { shouldValidate: false }); // Clear without immediate validation
+                                form.setValue('longitude', undefined, { shouldValidate: false }); // Clear without immediate validation
                                 setGpsError(null); // Clear GPS error when switching to manual
                             }
                         }}
@@ -480,7 +546,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     <FormControl>
                                         <Input placeholder="E.g., Back Field, Plot 3B" {...manualField} />
                                     </FormControl>
-                                    <FormMessage />
+                                    <FormMessage /> {/* Shows validation errors for manualLocation */}
                                 </FormItem>
                             )}
                             />
@@ -494,7 +560,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     {field.value === 'gps' && gpsError && (
                         <p className="text-sm text-destructive mt-2">{gpsError}</p>
                     )}
-                     {/* General message area for locationOption validation */}
+                     {/* General message area for locationOption validation itself (less common) */}
                      <FormMessage />
                 </FormItem>
                 )}
@@ -539,27 +605,14 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     <FormLabel>📊 Measurement Type</FormLabel>
                     <FormControl>
                         <RadioGroup
-                         onValueChange={(value: 'vess' | 'composition') => {
-                            field.onChange(value); // Update form state for validation
-                            // Reset other type's values when switching
-                            if (value === 'vess') {
-                                form.resetField('sand');
-                                form.resetField('clay');
-                                form.resetField('silt');
-                            } else if (value === 'composition') {
-                                form.resetField('vessScore');
-                                // Reset visual score to default if switching away then back
-                                if (form.getValues('vessScore') === undefined) {
-                                    setSelectedVessScore(3);
-                                }
-                            }
-                            }}
-                        value={field.value} // Controlled component
-                        className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4"
+                         // Use field.onChange provided by Controller
+                         onValueChange={field.onChange}
+                         value={field.value} // Controlled component
+                         className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4"
                         >
                         <FormItem className="flex items-center space-x-3 space-y-0">
                             <FormControl>
-                            <RadioGroupItem value="vess" id="type-vess"/>
+                             <RadioGroupItem value="vess" id="type-vess"/>
                             </FormControl>
                             <Label htmlFor="type-vess" className="font-normal cursor-pointer">
                              VESS Score (Visual Evaluation)
@@ -593,7 +646,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         {/* Step 2: Measurement Details */}
         <div className={step === 2 ? 'block' : 'hidden'}>
             <h2 className="text-xl font-semibold mb-4 border-b pb-2">
-                Step 2: {measurementType === 'vess' ? 'VESS Score Details' : 'Soil Composition Details'}
+                 Step 2: {measurementType === 'vess' ? 'VESS Score Details' : measurementType === 'composition' ? 'Soil Composition Details' : 'Measurement Details'}
             </h2>
 
            {/* Conditional Fields based on measurementType state */}
@@ -605,17 +658,17 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     <FormItem>
                     <FormLabel>VESS Score (1-5)</FormLabel>
                      <FormControl>
-                         {/* Wrap Slider and related elements in a div */}
+                        {/* Wrap Slider and related elements */}
                          <div>
                           <Slider
-                              // Use selectedVessScore for defaultValue to sync visually
-                              value={[field.value ?? selectedVessScore]} // Controlled component using field.value
+                              // Controlled component: value MUST come from field.value
+                              value={[field.value ?? 3]} // Provide default if field.value is undefined
                               min={1}
                               max={5}
                               step={1}
                               onValueChange={(value) => {
-                                  field.onChange(value[0]); // Update form state
-                                  // setSelectedVessScore(value[0]); // Update visual state immediately - handled by useEffect
+                                  field.onChange(value[0]); // Update form state via Controller
+                                  // Visual state update is handled by useEffect watching field.value
                               }}
                               className="my-4"
                               />
@@ -626,19 +679,21 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                 <span>4</span>
                                 <span>5 (Excel)</span>
                              </div>
-                            {/* Display Image and Description */}
-                            <div className="mt-4 p-4 border rounded-md bg-muted/30 flex flex-col sm:flex-row items-center gap-4">
-                                <Image
-                                    src={VESS_IMAGES[selectedVessScore]}
-                                    alt={`VESS Score ${selectedVessScore}`}
-                                    width={150}
-                                    height={150}
-                                    className="rounded-md border vess-image-container"
-                                    priority={false} // Smaller images, maybe not priority
-                                />
-                                <p className="text-center sm:text-left text-sm">{VESS_DESCRIPTIONS[selectedVessScore]}</p>
-                            </div>
-                        </div>
+                            {/* Display Image and Description based on visual state */}
+                             {selectedVessScore >= 1 && selectedVessScore <= 5 && (
+                                <div className="mt-4 p-4 border rounded-md bg-muted/30 flex flex-col sm:flex-row items-center gap-4">
+                                    <Image
+                                        src={VESS_IMAGES[selectedVessScore]}
+                                        alt={`VESS Score ${selectedVessScore}`}
+                                        width={150}
+                                        height={150}
+                                        className="rounded-md border vess-image-container"
+                                        priority={false} // Smaller images, maybe not priority
+                                    />
+                                    <p className="text-center sm:text-left text-sm">{VESS_DESCRIPTIONS[selectedVessScore]}</p>
+                                </div>
+                             )}
+                         </div>
                      </FormControl>
                     <FormMessage />
                     </FormItem>
@@ -662,8 +717,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     min="0"
                                     placeholder="e.g., 5.5"
                                     {...field}
-                                    // Ensure value is number or undefined
-                                    value={field.value ?? ''}
+                                    // Controlled input: Handle number conversion
+                                    value={field.value ?? ''} // Display empty string if undefined/null
                                     onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                                     />
                                 </FormControl>
@@ -684,8 +739,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     min="0"
                                     placeholder="e.g., 2.0"
                                      {...field}
-                                    value={field.value ?? ''}
-                                    onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                     value={field.value ?? ''}
+                                     onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                                     />
                                 </FormControl>
                                 <FormMessage />
@@ -705,8 +760,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     min="0"
                                     placeholder="e.g., 3.5"
                                      {...field}
-                                    value={field.value ?? ''}
-                                    onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                     value={field.value ?? ''}
+                                     onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                                      />
                                 </FormControl>
                                  <FormMessage />
@@ -715,7 +770,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         />
                     </div>
                      {/* Display Calculated Percentages */}
-                     {(watchSand !== undefined || watchClay !== undefined || watchSilt !== undefined) && percentages && (
+                      {percentages && (percentages.sandPercent !== undefined || percentages.clayPercent !== undefined || percentages.siltPercent !== undefined) && (
                         <div className="mt-4 p-4 border rounded-md bg-muted/30">
                              <h4 className="font-medium mb-2 text-center">Calculated Composition (%)</h4>
                              <div className="flex justify-around text-center gap-4">
@@ -736,8 +791,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                             <p className="text-xs text-center mt-2 text-muted-foreground">Note: Percentages are rounded and adjusted to sum to 100%.</p>
                         </div>
                      )}
-                      {/* Display combined error for composition fields if needed */}
-                      {form.formState.errors.sand?.type === 'manual' && (
+                      {/* Display combined error for composition fields if needed (from refine) */}
+                      {form.formState.errors.sand?.type === 'manual' && form.formState.errors.sand.message && (
                            <Alert variant="destructive" className="mt-4">
                                <AlertTriangle className="h-4 w-4" />
                                <AlertTitle>Input Required</AlertTitle>
@@ -762,5 +817,3 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     </Form>
   );
 }
-
-    
