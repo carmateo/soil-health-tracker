@@ -318,22 +318,22 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
          toast({ title: 'Data Updated', description: 'Soil sample data successfully updated.' });
       } else {
           // Add new document
-          await addDoc(collection(db, `users/${user.uid}/soilData`), finalData);
-          toast({ title: 'Data Saved', description: 'New soil sample data successfully saved.' });
-          form.reset({ // Reset form after successful submission of NEW data
-             date: new Date(), // Reset to current date
-             locationOption: 'gps',
-             manualLocation: '',
-             latitude: undefined,
-             longitude: undefined,
-             privacy: settings?.defaultPrivacy ?? 'private',
-             measurementType: undefined, // Reset type selection
-             vessScore: 3,
-             sand: undefined,
-             clay: undefined,
-             silt: undefined,
+          form.reset({ 
+            date: new Date(), 
+            locationOption: 'gps',
+            manualLocation: '',
+            latitude: null, // 👈 cambiar undefined por null
+            longitude: null, // 👈 cambiar undefined por null
+            privacy: settings?.defaultPrivacy ?? 'private',
+            measurementType: 'vess', // 👈 nunca poner undefined, poné un valor inicial
+            vessScore: 3,
+            sand: null,
+            clay: null,
+            silt: null,
           });
-          setMeasurementType(undefined); // Reset local state too
+          
+
+          setMeasurementType('composition'); // Reset local state too
           setStep(1); // Reset steps
       }
 

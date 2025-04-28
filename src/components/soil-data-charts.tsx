@@ -7,7 +7,7 @@ import { useAuth } from '@/context/auth-context';
 import { collection, query, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from 'recharts';
 import type { SoilData } from '@/types/soil';
 import { format, isValid, parseISO } from 'date-fns';
 import { LoadingSpinner } from './loading-spinner';
@@ -17,6 +17,7 @@ import { AlertTriangle } from 'lucide-react';
 interface VessChartData {
   date: string; // Formatted date string for XAxis
   vessScore: number | null;
+  originalDate: Date; // Store original date for sorting
 }
 
 interface CompositionChartData {
@@ -24,9 +25,14 @@ interface CompositionChartData {
   sandPercent: number | null;
   clayPercent: number | null;
   siltPercent: number | null;
+  originalDate: Date; // Store original date for sorting
 }
 
-export function SoilDataCharts() { // ✨ Removed data prop
+// Helper function to check if a value is a valid number
+const isValidNumber = (value: any): value is number => typeof value === 'number' && !isNaN(value);
+
+
+export function SoilDataCharts() {
   const { db } = useFirebase();
   const { user } = useAuth();
   const [soilData, setSoilData] = useState<Array<SoilData & { id: string }>>([]);
@@ -43,47 +49,88 @@ export function SoilDataCharts() { // ✨ Removed data prop
     setIsLoading(true);
     setError(null);
 
+    const dataPath = `users/${user.uid}/soilData`;
+     console.log("Setting up charts listener for path:", dataPath); // Debug log
+
     const q = query(
-      collection(db, `users/${user.uid}/soilData`),
+      collection(db, dataPath),
       orderBy('date', 'asc') // Order by date ascending for charts
     );
 
     const unsubscribe = onSnapshot(
       q,
       (querySnapshot) => {
+         console.log(`Charts snapshot received: ${querySnapshot.size} documents.`); // Debug log
         const data: Array<SoilData & { id: string }> = [];
         querySnapshot.forEach((doc) => {
-           // Ensure the date field is a Firestore Timestamp before using
-           const docData = doc.data();
+            const docData = doc.data();
+            console.log(`Charts processing doc ${doc.id}:`, docData); // Debug log
+
+           // Ensure the date field is a Firestore Timestamp and valid
            let date = docData.date;
             if (!(date instanceof Timestamp)) {
-                // Attempt conversion if it's a string or number
-                try {
-                    const parsedDate = new Date(date);
-                    if (isValid(parsedDate)) {
-                      date = Timestamp.fromDate(parsedDate);
-                    } else {
-                      console.warn(`Document ${doc.id} has invalid date format for charts:`, docData.date);
-                      return; // Skip if date is invalid
-                    }
-                } catch (e) {
-                    console.warn(`Document ${doc.id} failed date conversion for charts:`, docData.date, e);
-                    return; // Skip on error
-                }
+               console.warn(`Charts: Doc ${doc.id} has non-Timestamp date:`, docData.date, typeof docData.date);
+               try {
+                 const potentialDate = new Date(date);
+                 if (isValid(potentialDate)) {
+                    date = Timestamp.fromDate(potentialDate);
+                     console.log(`Charts: Converted date for doc ${doc.id} to Timestamp:`, date); // Debug log
+                 } else {
+                    console.warn(`Charts: Doc ${doc.id} has invalid date format, skipping.`);
+                    return;
+                 }
+               } catch (e) {
+                 console.error(`Charts: Error converting date for doc ${doc.id}:`, e);
+                 return;
+               }
            }
-          data.push({ id: doc.id, ...docData, date } as SoilData & { id: string });
+           // Further validation on the converted Timestamp's date
+            const jsDate = date.toDate();
+            if (!isValid(jsDate)) {
+                console.warn(`Charts: Doc ${doc.id} date is invalid after conversion, skipping.`);
+                return;
+            }
+
+
+            // Minimal structure check
+             if (!docData.measurementType) {
+                console.warn(`Charts: Doc ${doc.id} missing measurementType, skipping.`);
+                return;
+            }
+
+           data.push({
+             id: doc.id,
+              userId: docData.userId || user.uid,
+              date: date, // Use the validated/converted Timestamp
+              location: docData.location,
+              latitude: docData.latitude,
+              longitude: docData.longitude,
+              measurementType: docData.measurementType,
+              vessScore: docData.vessScore,
+              sand: docData.sand,
+              clay: docData.clay,
+              silt: docData.silt,
+              sandPercent: docData.sandPercent,
+              clayPercent: docData.clayPercent,
+              siltPercent: docData.siltPercent,
+              privacy: docData.privacy || 'private',
+           });
         });
+         console.log("Charts processed data:", data); // Debug log
         setSoilData(data);
         setIsLoading(false);
       },
       (err) => {
         console.error('Error fetching soil data for charts:', err);
-        setError('Failed to fetch soil data for charts.');
+        setError('Failed to fetch soil data for charts. Check console.');
         setIsLoading(false);
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+        console.log("Unsubscribing from charts Firestore listener."); // Debug log
+        unsubscribe();
+    }
   }, [user, db]);
 
   const { vessChartData, compositionChartData } = useMemo(() => {
@@ -91,56 +138,46 @@ export function SoilDataCharts() { // ✨ Removed data prop
     const compositionData: CompositionChartData[] = [];
 
     soilData.forEach(item => {
-        // Ensure item.date is a Timestamp before proceeding
-       if (!item.date || !(item.date instanceof Timestamp)) {
-         return; // Skip invalid data
-       }
-
-      const itemDate = item.date.toDate();
-      // Double check if the date is valid after conversion
-      if (!isValid(itemDate)) {
-          console.warn("Skipping item with invalid date for chart:", item.id, item.date);
-          return;
-      }
+       // Date is already validated as Timestamp in useEffect
+       const itemDate = item.date!.toDate(); // Safe to assert non-null due to filtering in useEffect
 
       const dateStr = format(itemDate, 'MMM d, yy');
 
-      if (item.measurementType === 'vess' && item.vessScore !== undefined && item.vessScore !== null) {
-        vessData.push({ date: dateStr, vessScore: item.vessScore });
+      if (item.measurementType === 'vess' && isValidNumber(item.vessScore)) {
+        vessData.push({ date: dateStr, vessScore: item.vessScore, originalDate: itemDate });
       } else if (item.measurementType === 'composition') {
-         // Use calculated percentages if available, otherwise fall back to raw cm values if needed (though % is preferred)
-         const sandValue = item.sandPercent ?? item.sand ?? null;
-         const clayValue = item.clayPercent ?? item.clay ?? null;
-         const siltValue = item.siltPercent ?? item.silt ?? null;
+         // Use calculated percentages ONLY if they are valid numbers
+         const sandP = isValidNumber(item.sandPercent) ? item.sandPercent : null;
+         const clayP = isValidNumber(item.clayPercent) ? item.clayPercent : null;
+         const siltP = isValidNumber(item.siltPercent) ? item.siltPercent : null;
 
-          // Only add if at least one value is present
-          if (sandValue !== null || clayValue !== null || siltValue !== null) {
+          // Only add if at least one valid percentage is present
+          if (sandP !== null || clayP !== null || siltP !== null) {
             compositionData.push({
               date: dateStr,
-              sandPercent: sandValue,
-              clayPercent: clayValue,
-              siltPercent: siltValue,
+              sandPercent: sandP,
+              clayPercent: clayP,
+              siltPercent: siltP,
+              originalDate: itemDate,
             });
+          } else {
+              console.warn(`Skipping composition chart entry for ${item.id} due to missing/invalid percentage data.`)
           }
       }
     });
 
-    // Create maps to group data by date (taking the last entry for simplicity)
-    const vessMap = new Map<string, VessChartData>();
-    vessData.forEach(item => vessMap.set(item.date, item));
+    // Sort explicitly by original date just in case Firestore order isn't perfect or data gets reshuffled
+    vessData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime());
+    compositionData.sort((a, b) => a.originalDate.getTime() - b.originalDate.getTime());
 
-    const compositionMap = new Map<string, CompositionChartData>();
-    compositionData.forEach(item => compositionMap.set(item.date, item));
+    // No need for maps if data is already sorted and we want all points
+    // console.log("Generated VESS Chart Data:", vessData);
+    // console.log("Generated Composition Chart Data:", compositionData);
 
-    // Convert maps back to arrays, implicitly sorted by date due to insertion order from query
-    const uniqueVessData = Array.from(vessMap.values());
-    const uniqueCompositionData = Array.from(compositionMap.values());
-
-
-    return { vessChartData: uniqueVessData, compositionChartData: uniqueCompositionData };
+    return { vessChartData: vessData, compositionChartData: compositionData };
   }, [soilData]);
 
-  if (isLoading) {
+  if (isLoading && soilData.length === 0) { // Show loading only initially
     return (
       <div className="flex justify-center items-center py-10">
         <LoadingSpinner />
@@ -161,8 +198,11 @@ export function SoilDataCharts() { // ✨ Removed data prop
     );
   }
 
-  const hasVessData = vessChartData.length > 1; // Need at least 2 points for a line/area chart
-  const hasCompositionData = compositionChartData.length > 1;
+  const hasVessData = vessChartData.length > 0; // Allow chart with one point
+  const hasCompositionData = compositionChartData.length > 0; // Allow chart with one point
+  const needsMoreVessData = vessChartData.length < 2;
+  const needsMoreCompositionData = compositionChartData.length < 2;
+
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -177,27 +217,42 @@ export function SoilDataCharts() { // ✨ Removed data prop
              <ChartContainer config={{
                 vessScore: { label: "VESS Score", color: "hsl(var(--chart-1))" }, // Green
               }} className="h-[300px] w-full">
-              <AreaChart data={vessChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
-                 <YAxis domain={[0, 5]} allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} ticks={[1, 2, 3, 4, 5]} width={30}/>
-                 <ChartTooltip content={<ChartTooltipContent indicator="dot" />} />
-                 <Area
-                  dataKey="vessScore"
-                  type="monotone"
-                  fill="var(--color-vessScore)"
-                  fillOpacity={0.3}
-                  stroke="var(--color-vessScore)"
-                  stackId="a" // Use stackId if you plan to stack areas later
-                  connectNulls // Connect lines even if there are missing data points
-                />
-              </AreaChart>
+              <ResponsiveContainer>
+                 <AreaChart data={vessChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                   <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd" />
+                   <YAxis domain={[0, 5]} allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} ticks={[1, 2, 3, 4, 5]} width={30}/>
+                   <ChartTooltip content={<ChartTooltipContent indicator="dot" />} cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }} />
+                   <defs>
+                       <linearGradient id="fillVess" x1="0" y1="0" x2="0" y2="1">
+                         <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.8}/>
+                         <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.1}/>
+                       </linearGradient>
+                   </defs>
+                   <Area
+                    dataKey="vessScore"
+                    type="monotone"
+                    fill="url(#fillVess)"
+                    stroke="hsl(var(--chart-1))"
+                    strokeWidth={2}
+                    stackId="a" // Use stackId if you plan to stack areas later
+                    connectNulls // Connect lines even if there are missing data points
+                    dot={{ r: 4, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 1 }}
+                    activeDot={{ r: 6, fill: "hsl(var(--primary))", stroke: "hsl(var(--background))", strokeWidth: 2 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             </ChartContainer>
           ) : (
             <p className="text-muted-foreground text-center py-10">
-               {soilData.filter(d => d.measurementType === 'vess').length <= 1 ? "Need at least two VESS score entries to display a trend." : "No VESS score data available."}
-             </p>
+                No VESS score data available for the selected period.
+            </p>
           )}
+           {hasVessData && needsMoreVessData && (
+              <p className="text-xs text-muted-foreground text-center mt-2">
+                 Add more entries to see a trend line.
+               </p>
+           )}
         </CardContent>
       </Card>
 
@@ -212,57 +267,75 @@ export function SoilDataCharts() { // ✨ Removed data prop
              <ChartContainer config={{
                  sandPercent: { label: "Sand", color: "hsl(var(--chart-3))" }, // Ochre/Yellow
                  clayPercent: { label: "Clay", color: "hsl(var(--chart-2))" }, // Brown
-                 siltPercent: { label: "Silt", color: "hsl(var(--chart-1))" }, // Green (adjusted maybe?)
+                 siltPercent: { label: "Silt", color: "hsl(var(--chart-1))" }, // Green (using chart-1 for silt now)
               }} className="h-[300px] w-full">
-               <AreaChart data={compositionChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }} stackOffset="expand"> {/* expand makes it a 100% chart */}
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                 <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} />
-                 {/* Y axis represents percentage 0-1 when stackOffset="expand" */}
-                 <YAxis type="number" domain={[0, 1]} tickFormatter={(value) => `${Math.round(value * 100)}%`} tickLine={false} axisLine={false} tickMargin={8} width={40} />
-                 <ChartTooltip content={<ChartTooltipContent indicator="dot" formatter={(value, name) => `${(value * 100).toFixed(0)}%`} />} />
-                 <ChartLegend content={<ChartLegendContent />} />
-                 <Area
-                   dataKey="sandPercent"
-                   type="monotone"
-                   fill="var(--color-sandPercent)"
-                   fillOpacity={0.6} // Slightly more opaque for stacked
-                   stroke="var(--color-sandPercent)"
-                   stackId="composition"
-                   connectNulls
-                   // Convert raw numbers to proportion if needed, though expand handles it
-                   // valueAccessor={(entry) => entry.sandPercent / 100}
-                 />
-                 <Area
-                   dataKey="clayPercent"
-                   type="monotone"
-                   fill="var(--color-clayPercent)"
-                   fillOpacity={0.6}
-                   stroke="var(--color-clayPercent)"
-                   stackId="composition"
-                   connectNulls
-                    // valueAccessor={(entry) => entry.clayPercent / 100}
-                 />
-                 <Area
-                   dataKey="siltPercent"
-                   type="monotone"
-                   fill="var(--color-siltPercent)"
-                    fillOpacity={0.6}
-                   stroke="var(--color-siltPercent)"
-                   stackId="composition"
-                   connectNulls
-                   // valueAccessor={(entry) => entry.siltPercent / 100}
-                 />
-              </AreaChart>
+                <ResponsiveContainer>
+                   <AreaChart data={compositionChartData} margin={{ top: 5, right: 20, left: 0, bottom: 40 }} stackOffset="expand"> {/* expand makes it a 100% chart */}
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                     <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd"/>
+                     {/* Y axis represents percentage 0-1 when stackOffset="expand" */}
+                     <YAxis type="number" domain={[0, 1]} tickFormatter={(value) => `${Math.round(value * 100)}%`} tickLine={false} axisLine={false} tickMargin={8} width={40} />
+                     <ChartTooltip content={<ChartTooltipContent indicator="dot" formatter={(value) => `${(value * 100).toFixed(0)}%`} />} cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }}/>
+                     <ChartLegend content={<ChartLegendContent verticalAlign="bottom" wrapperStyle={{ bottom: 0, left: 20 }}/>} />
+                     <defs>
+                        <linearGradient id="fillSand" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--chart-3))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--chart-3))" stopOpacity={0.1}/>
+                        </linearGradient>
+                        <linearGradient id="fillClay" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--chart-2))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--chart-2))" stopOpacity={0.1}/>
+                        </linearGradient>
+                         <linearGradient id="fillSilt" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.8}/>
+                            <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.1}/>
+                        </linearGradient>
+                    </defs>
+                     <Area
+                       dataKey="sandPercent"
+                       name="Sand" // Name used by legend/tooltip
+                       type="monotone"
+                       fill="url(#fillSand)"
+                       stroke="hsl(var(--chart-3))"
+                       strokeWidth={2}
+                       stackId="composition"
+                       connectNulls
+                     />
+                     <Area
+                       dataKey="clayPercent"
+                       name="Clay"
+                       type="monotone"
+                       fill="url(#fillClay)"
+                       stroke="hsl(var(--chart-2))"
+                        strokeWidth={2}
+                       stackId="composition"
+                       connectNulls
+                     />
+                     <Area
+                       dataKey="siltPercent"
+                       name="Silt"
+                       type="monotone"
+                       fill="url(#fillSilt)"
+                       stroke="hsl(var(--chart-1))"
+                        strokeWidth={2}
+                       stackId="composition"
+                       connectNulls
+                     />
+                  </AreaChart>
+                </ResponsiveContainer>
             </ChartContainer>
            ) : (
              <p className="text-muted-foreground text-center py-10">
-               {soilData.filter(d => d.measurementType === 'composition').length <= 1 ? "Need at least two composition entries to display a trend." : "No soil composition data available."}
+                No soil composition data (with percentages) available for the selected period.
              </p>
+           )}
+            {hasCompositionData && needsMoreCompositionData && (
+              <p className="text-xs text-muted-foreground text-center mt-2">
+                 Add more entries to see a trend line.
+               </p>
            )}
         </CardContent>
       </Card>
     </div>
   );
 }
-
-    

@@ -15,43 +15,47 @@ import { SoilDataCharts } from '@/components/soil-data-charts';
 
 
 export default function Dashboard() {
-  const { user, loading } = useAuth();
+  const { user, loading: authLoading } = useAuth(); // Renamed loading to authLoading for clarity
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("addData");
+  const [isClient, setIsClient] = useState(false); // State to track if component has mounted
 
-  // ✨ Remove useState for soilData and fetchingData here
-  // const [soilData, setSoilData] = useState<any[]>([]);
-  // const [fetchingData, setFetchingData] = useState(false);
-
+  // Track mounting state
   useEffect(() => {
-    if (!loading && !user) {
+    setIsClient(true);
+  }, []);
+
+
+  // Redirect if not logged in after initial load
+  useEffect(() => {
+    if (!authLoading && !user && isClient) {
+        console.log("Redirecting to login from dashboard...");
       router.push('/');
     }
-    // ✨ Remove data fetching logic from here.
-    // SoilDataTable and SoilDataCharts will fetch their own data using onSnapshot
-  }, [user, loading, router]);
+  }, [user, authLoading, router, isClient]);
 
 
-  if (loading) { // ✨ Only check for auth loading now
+  // Display loading spinner during initial auth check or if not mounted yet
+  if (authLoading || !isClient) {
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
-        <LoadingSpinner />
+        <LoadingSpinner size={48} />
       </div>
     );
   }
 
-  // Ensure user is loaded and exists before rendering dashboard content
+  // If user is definitely not logged in (and client has mounted), show redirect message
   if (!user) {
-     // Can show a message or redirect again, though useEffect should handle it
-    return (
-        <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
-         <p>Redirecting to login...</p>
-         <LoadingSpinner />
+     return (
+        <div className="flex flex-col justify-center items-center min-h-[calc(100vh-10rem)] space-y-4">
+         <p className="text-muted-foreground">You need to be logged in to view this page.</p>
+         <p className="text-muted-foreground text-sm">Redirecting to login...</p>
+         <LoadingSpinner size={32} />
        </div>
     );
   }
 
-
+ // User is logged in, render the dashboard
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold text-primary">SoilHealth Dashboard</h1>
@@ -89,10 +93,10 @@ export default function Dashboard() {
           <Card className="bg-secondary shadow-md">
             <CardHeader>
               <CardTitle>Your Soil Data Entries</CardTitle>
-              <CardDescription>View, edit, or delete your recorded soil samples.</CardDescription>
+              <CardDescription>View, edit, or delete your recorded soil samples within a date range.</CardDescription>
             </CardHeader>
             <CardContent>
-               {/* ✨ SoilDataTable now fetches its own data */}
+               {/* SoilDataTable now fetches its own data */}
               <SoilDataTable />
             </CardContent>
           </Card>
@@ -105,7 +109,7 @@ export default function Dashboard() {
               <CardDescription>Visualize your soil health trends over time.</CardDescription>
             </CardHeader>
             <CardContent>
-               {/* ✨ SoilDataCharts now fetches its own data */}
+               {/* SoilDataCharts now fetches its own data */}
               <SoilDataCharts />
             </CardContent>
           </Card>
@@ -126,5 +130,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-    
