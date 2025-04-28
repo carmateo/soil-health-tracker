@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -76,7 +75,7 @@ export default function Dashboard() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="addData">
+        <TabsContent key="addDataTab" value="addData">
           <Card className="bg-secondary shadow-md">
             <CardHeader>
               <CardTitle>Add New Soil Sample</CardTitle>
@@ -89,7 +88,7 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="viewData">
+        <TabsContent key="viewDataTab" value="viewData">
           <Card className="bg-secondary shadow-md">
             <CardHeader>
               <CardTitle>Your Soil Data Entries</CardTitle>
@@ -102,7 +101,7 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="analyzeData">
+        <TabsContent key="analyzeDataTab" value="analyzeData">
           <Card className="bg-secondary shadow-md">
             <CardHeader>
               <CardTitle>Data Analysis</CardTitle>
@@ -115,7 +114,7 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="settings">
+        <TabsContent key="settingsTab" value="settings">
           <Card className="bg-secondary shadow-md">
             <CardHeader>
               <CardTitle>User Settings</CardTitle>
