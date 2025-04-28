@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -40,13 +41,13 @@ export default function Home() {
 
   return (
     <div className="flex justify-center items-start pt-16 min-h-[calc(100vh-10rem)]">
-      <Tabs defaultValue="login" value={authAction} onValueChange={(value) => setAuthAction(value as 'login' | 'register')} className="w-[400px] max-w-full">
+      <Tabs defaultValue="login" value={authAction} onValueChange={(value) => setAuthAction(value as 'login' | 'register')} className="w-[400px] max-w-full px-4 sm:px-0">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="login">Login</TabsTrigger>
           <TabsTrigger value="register">Register</TabsTrigger>
         </TabsList>
         <TabsContent value="login">
-           <Card className="bg-secondary">
+           <Card className="bg-card border-border shadow-md">
             <CardHeader>
               <CardTitle>Login</CardTitle>
             </CardHeader>
@@ -56,7 +57,7 @@ export default function Home() {
           </Card>
         </TabsContent>
         <TabsContent value="register">
-           <Card className="bg-secondary">
+           <Card className="bg-card border-border shadow-md">
             <CardHeader>
               <CardTitle>Register</CardTitle>
             </CardHeader>

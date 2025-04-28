@@ -47,7 +47,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
     const sortedData = [...soilData].sort((a, b) => a.date.toDate().getTime() - b.date.toDate().getTime());
 
     sortedData.forEach(item => {
-       // Date is already validated as Timestamp in Dashboard
+       // Date validation happens in Dashboard listener now
        if (!item.date || !isValid(item.date.toDate())) {
            console.warn(`SoilDataCharts: Skipping item ${item.id} in chart generation due to invalid date.`);
            return;
@@ -107,7 +107,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
        {/* VESS Score Chart */}
-      <Card className="shadow-md">
+      <Card className="bg-card shadow-md border-border">
         <CardHeader>
           <CardTitle>VESS Score Over Time</CardTitle>
            <CardDescription>Visual Evaluation of Soil Structure (1=Poor, 5=Excellent)</CardDescription>
@@ -119,7 +119,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
               }} className="h-[300px] w-full">
               <ResponsiveContainer>
                  <AreaChart data={vessChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))"/>
                    <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd" />
                    <YAxis domain={[0, 5]} allowDecimals={false} tickLine={false} axisLine={false} tickMargin={8} ticks={[1, 2, 3, 4, 5]} width={30}/>
                    <ChartTooltip content={<ChartTooltipContent indicator="dot" />} cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }} />
@@ -157,7 +157,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
       </Card>
 
        {/* Soil Composition Chart */}
-       <Card className="shadow-md">
+       <Card className="bg-card shadow-md border-border">
         <CardHeader>
           <CardTitle>Soil Composition (%) Over Time</CardTitle>
            <CardDescription>Percentage of Sand, Clay, and Silt</CardDescription>
@@ -172,7 +172,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
                 <ResponsiveContainer>
                    {/* Changed to stackOffset="expand" for 100% stacked area chart */}
                    <AreaChart data={compositionChartData} margin={{ top: 5, right: 20, left: 0, bottom: 40 }} stackOffset="expand">
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))"/>
                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd"/>
                      {/* Y axis represents percentage 0-1 when stackOffset="expand" */}
                      <YAxis type="number" domain={[0, 1]} tickFormatter={(value) => `${Math.round(value * 100)}%`} tickLine={false} axisLine={false} tickMargin={8} width={40} />

@@ -68,24 +68,32 @@ export default function Dashboard() {
                 console.warn(`Dashboard: Doc ${doc.id} has non-Timestamp date:`, docData.date);
                 // Attempt conversion or skip
                 try {
-                    const potentialDate = new Date(date);
+                    // Handle different date representations (e.g., seconds/nanoseconds object)
+                    let potentialDate;
+                    if (typeof docData.date === 'object' && docData.date !== null && 'seconds' in docData.date && 'nanoseconds' in docData.date) {
+                        potentialDate = new Timestamp(docData.date.seconds, docData.date.nanoseconds).toDate();
+                    } else if (typeof docData.date === 'string' || typeof docData.date === 'number') {
+                         potentialDate = new Date(docData.date);
+                    } else {
+                        throw new Error('Unrecognized date format');
+                    }
+
                     if (isValid(potentialDate)) {
                        date = Timestamp.fromDate(potentialDate);
                     } else {
-                       console.warn(`Dashboard: Doc ${doc.id} has invalid date format, skipping.`);
+                       console.warn(`Dashboard: Doc ${doc.id} has invalid date format after attempt, skipping.`);
                        return; // Skip this doc
                     }
                 } catch (e) {
                     console.error(`Dashboard: Error converting date for doc ${doc.id}:`, e);
                     return; // Skip this doc
                 }
-             }
-             if (!isValid(date.toDate())) {
-                 console.warn(`Dashboard: Doc ${doc.id} has invalid date after conversion, skipping.`);
+             } else if (!isValid(date.toDate())) { // Validate even if it's already a Timestamp
+                 console.warn(`Dashboard: Doc ${doc.id} has invalid date within Timestamp, skipping.`);
                  return; // Skip this doc
              }
-              if (!docData.measurementType) {
-                 console.warn(`Dashboard: Doc ${doc.id} missing measurementType, skipping.`);
+              if (!docData.measurementType || (docData.measurementType !== 'vess' && docData.measurementType !== 'composition')) {
+                 console.warn(`Dashboard: Doc ${doc.id} missing or invalid measurementType, skipping.`);
                  return; // Skip this doc
              }
 
@@ -94,22 +102,22 @@ export default function Dashboard() {
                id: doc.id,
                userId: docData.userId || user.uid,
                date: date, // Use validated timestamp
-               location: docData.location,
+               location: docData.location ?? null, // Ensure null if missing
                locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
-               latitude: docData.latitude,
-               longitude: docData.longitude,
+               latitude: docData.latitude ?? null,
+               longitude: docData.longitude ?? null,
                measurementType: docData.measurementType,
-               vessScore: docData.vessScore,
-               sand: docData.sand,
-               clay: docData.clay,
-               silt: docData.silt,
-               sandPercent: docData.sandPercent,
-               clayPercent: docData.clayPercent,
-               siltPercent: docData.siltPercent,
+               vessScore: docData.measurementType === 'vess' ? (docData.vessScore ?? null) : null,
+               sand: docData.measurementType === 'composition' ? (docData.sand ?? null) : null,
+               clay: docData.measurementType === 'composition' ? (docData.clay ?? null) : null,
+               silt: docData.measurementType === 'composition' ? (docData.silt ?? null) : null,
+               sandPercent: docData.measurementType === 'composition' ? (docData.sandPercent ?? null) : null,
+               clayPercent: docData.measurementType === 'composition' ? (docData.clayPercent ?? null) : null,
+               siltPercent: docData.measurementType === 'composition' ? (docData.siltPercent ?? null) : null,
                privacy: docData.privacy || 'private',
              });
           });
-          console.log("Dashboard: Processed data:", fetchedData);
+          console.log("Dashboard: Processed data for table/charts:", fetchedData);
           setSoilData(fetchedData);
           setDataLoading(false); // Stop loading after data is processed
           setDataError(null); // Clear error on success
@@ -123,7 +131,11 @@ export default function Dashboard() {
       );
     } else {
        // If user logs out or db is not ready
-       setDataLoading(false); // Ensure loading stops if user is not available
+       // Ensure loading stops if user is not available
+       // Check if auth is still loading before setting dataLoading to false
+       if (!authLoading) {
+           setDataLoading(false);
+       }
        setSoilData([]); // Clear data
        setDataError(null);
     }
@@ -133,10 +145,11 @@ export default function Dashboard() {
        console.log("Dashboard: Unsubscribing from Firestore listener.");
       unsubscribe();
     };
-  }, [user, isClient, db]); // Dependencies: run effect when user, client status, or db instance changes
+    // Include authLoading in dependencies to handle cases where user becomes available but auth is still initializing
+  }, [user, isClient, db, authLoading]);
 
 
-  // Combined loading state
+  // Combined loading state for initial page load
   const isLoading = authLoading || !isClient;
 
   if (isLoading) {
@@ -148,8 +161,8 @@ export default function Dashboard() {
     );
   }
 
-  // Redirect if not logged in (after initial loading)
-  if (!user) {
+  // Redirect if not logged in (after initial loading checks)
+  if (!user && !authLoading) {
      // Redirect immediately instead of showing a message
      if (typeof window !== 'undefined') {
          router.push('/');
@@ -168,23 +181,24 @@ export default function Dashboard() {
       <h1 className="text-3xl font-bold text-primary">SoilHealth Dashboard</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-1 sm:grid-cols-2 md:grid-cols-4 mb-6">
-          <TabsTrigger value="addData" className="flex items-center gap-2">
-            <PlusCircle className="h-4 w-4" /> Add Data
+        {/* Adjusted grid layout for better responsiveness */}
+        <TabsList className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-4 mb-6">
+          <TabsTrigger value="addData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
+            <PlusCircle className="h-4 w-4 sm:h-5 sm:w-5" /> Add Data
           </TabsTrigger>
-          <TabsTrigger value="viewData" className="flex items-center gap-2">
-            <Table className="h-4 w-4" /> View Data
+          <TabsTrigger value="viewData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
+            <Table className="h-4 w-4 sm:h-5 sm:w-5" /> View Data
           </TabsTrigger>
-          <TabsTrigger value="analyzeData" className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" /> Analyze Data
+          <TabsTrigger value="analyzeData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
+            <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5" /> Analyze Data
           </TabsTrigger>
-          <TabsTrigger value="settings" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" /> Settings
+          <TabsTrigger value="settings" className="flex items-center justify-center gap-2 text-sm sm:text-base">
+            <Settings className="h-4 w-4 sm:h-5 sm:w-5" /> Settings
           </TabsTrigger>
         </TabsList>
 
         <TabsContent key="addDataTab" value="addData">
-          <Card className="bg-secondary shadow-md">
+          <Card className="bg-card shadow-md border-border">
             <CardHeader>
               <CardTitle>Add New Soil Sample</CardTitle>
               <CardDescription>Fill in the details for your new soil sample using the stepped form below.</CardDescription>
@@ -197,10 +211,10 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent key="viewDataTab" value="viewData">
-          <Card className="bg-secondary shadow-md">
-            <CardHeader>
-              <CardTitle>Your Soil Data Entries</CardTitle>
-              <CardDescription>View, filter, and manage your recorded soil samples.</CardDescription>
+           <Card className="bg-card shadow-md border-border">
+             <CardHeader>
+               <CardTitle>Your Soil Data Entries</CardTitle>
+               <CardDescription>View, filter, and manage your recorded soil samples.</CardDescription>
             </CardHeader>
             <CardContent>
               {dataLoading ? (
@@ -223,7 +237,7 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent key="analyzeDataTab" value="analyzeData">
-          <Card className="bg-secondary shadow-md">
+          <Card className="bg-card shadow-md border-border">
             <CardHeader>
               <CardTitle>Data Analysis</CardTitle>
               <CardDescription>Visualize your soil health trends over time.</CardDescription>
@@ -250,7 +264,7 @@ export default function Dashboard() {
         </TabsContent>
 
         <TabsContent key="settingsTab" value="settings">
-          <Card className="bg-secondary shadow-md">
+          <Card className="bg-card shadow-md border-border">
             <CardHeader>
               <CardTitle>User Settings</CardTitle>
               <CardDescription>Manage your account preferences.</CardDescription>

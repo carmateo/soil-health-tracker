@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -42,7 +43,7 @@ export function UserSettings() {
   };
 
   return (
-    <Card className="w-full max-w-md">
+    <Card className="w-full max-w-md bg-card border-border shadow-md">
       <CardHeader>
         <CardTitle>Default Privacy</CardTitle>
         <CardDescription>
