@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -28,7 +29,7 @@ import type { DateRange } from "react-day-picker";
 import { subDays } from 'date-fns';
 
 
-export function SoilDataTable() {
+export function SoilDataTable() { // ✨ Removed data prop
   const { db } = useFirebase();
   const { user } = useAuth();
   const { toast } = useToast();
@@ -64,7 +65,21 @@ export function SoilDataTable() {
       (querySnapshot) => {
         const data: Array<SoilData & { id: string }> = [];
         querySnapshot.forEach((doc) => {
-          data.push({ id: doc.id, ...doc.data() } as SoilData & { id: string });
+           // Ensure the date field is a Firestore Timestamp before converting
+           const docData = doc.data();
+           let date = docData.date;
+           if (!(date instanceof Timestamp)) {
+             // Attempt conversion if it's a recognizable format (e.g., from older data)
+             // This might need adjustment based on how non-Timestamp dates are stored
+             try {
+                date = Timestamp.fromDate(new Date(date));
+             } catch (e) {
+                console.warn(`Document ${doc.id} has invalid date format:`, docData.date);
+                // Skip this entry or handle it differently? For now, skip.
+                return;
+             }
+           }
+           data.push({ id: doc.id, ...docData, date } as SoilData & { id: string });
         });
         setSoilData(data);
         setIsLoading(false);
@@ -117,15 +132,27 @@ export function SoilDataTable() {
 
    const filteredData = useMemo(() => {
     return soilData.filter(item => {
+      // Add a check for item.date existence and type
+      if (!item.date || !(item.date instanceof Timestamp)) {
+        return false; // Skip items with invalid dates
+      }
       const itemDate = item.date.toDate();
       const fromDate = dateRange?.from;
       const toDate = dateRange?.to;
 
+
       if (!fromDate && !toDate) return true; // No filter applied
 
-      const isAfterFrom = fromDate ? itemDate >= fromDate : true;
-      // Adjust 'to' date to include the entire day
-      const isBeforeTo = toDate ? itemDate <= new Date(toDate.setHours(23, 59, 59, 999)) : true;
+
+      // Ensure fromDate comparison starts from the beginning of the day
+      const startOfDayFrom = fromDate ? new Date(fromDate.setHours(0, 0, 0, 0)) : null;
+      // Ensure toDate comparison includes the entire day
+       const endOfDayTo = toDate ? new Date(toDate.setHours(23, 59, 59, 999)) : null;
+
+
+      const isAfterFrom = startOfDayFrom ? itemDate >= startOfDayFrom : true;
+      const isBeforeTo = endOfDayTo ? itemDate <= endOfDayTo : true;
+
 
       return isAfterFrom && isBeforeTo;
     });
@@ -143,8 +170,12 @@ export function SoilDataTable() {
 
   if (error) {
     return (
-      <div className="text-destructive flex items-center gap-2">
-         <AlertTriangle /> {error}
+      <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
+         <AlertTriangle className="h-5 w-5" />
+         <div>
+            <p className="font-semibold">Error Loading Data</p>
+            <p>{error}</p>
+         </div>
       </div>
     );
   }
@@ -159,7 +190,7 @@ export function SoilDataTable() {
             <Button
               id="date"
               variant={"outline"}
-              className="w-[300px] justify-start text-left font-normal"
+              className="w-full sm:w-[300px] justify-start text-left font-normal"
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
               {dateRange?.from ? (
@@ -184,7 +215,7 @@ export function SoilDataTable() {
               selected={dateRange}
               onSelect={setDateRange}
               numberOfMonths={2}
-               disabled={(date) => date > new Date()} // Disable future dates
+               disabled={(date) => date > new Date() || date < new Date("1900-01-01")} // Disable future dates and very old dates
             />
           </PopoverContent>
         </Popover>
@@ -207,25 +238,29 @@ export function SoilDataTable() {
              {filteredData.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    No soil data found {dateRange?.from || dateRange?.to ? 'for the selected date range.' : 'yet. Add your first sample!'}
+                    {soilData.length === 0 ? 'No soil data found yet. Add your first sample!' : 'No soil data found for the selected date range.'}
                   </TableCell>
                 </TableRow>
              ) : (
                filteredData.map((data) => (
                 <TableRow key={data.id}>
-                  <TableCell className="font-medium">
-                    {format(data.date.toDate(), 'PP')} {/* Format date nicely */}
-                  </TableCell>
+                   <TableCell className="font-medium whitespace-nowrap">
+                     {/* Check if date is valid before formatting */}
+                     {data.date instanceof Timestamp ? format(data.date.toDate(), 'PP') : 'Invalid Date'}
+                   </TableCell>
                    <TableCell>
-                    {data.location || (data.latitude && data.longitude ? `${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}` : <span className="text-muted-foreground italic">N/A</span>)}
+                     <div className="flex items-center gap-1">
+                       {data.location || (data.latitude && data.longitude) ? <MapPin className="h-4 w-4 text-muted-foreground" /> : null}
+                       {data.location || (data.latitude && data.longitude ? `${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}` : <span className="text-muted-foreground italic">N/A</span>)}
+                      </div>
                   </TableCell>
                   <TableCell className="capitalize">{data.measurementType}</TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     {data.measurementType === 'vess' ? (
                       `VESS: ${data.vessScore}`
                     ) : (
-                      `Sand: ${data.sandPercent ?? data.sand ?? 'N/A'}% | Clay: ${data.clayPercent ?? data.clay ?? 'N/A'}% | Silt: ${data.siltPercent ?? data.silt ?? 'N/A'}%`
-
+                      // Handle cases where percentages might be missing (e.g., older data)
+                       `S:${data.sandPercent ?? data.sand ?? 'N/A'}% | C:${data.clayPercent ?? data.clay ?? 'N/A'}% | Si:${data.siltPercent ?? data.silt ?? 'N/A'}%`
                     )}
                   </TableCell>
                   <TableCell>
@@ -264,7 +299,7 @@ export function SoilDataTable() {
           <DialogHeader>
             <DialogTitle>Edit Soil Data Entry</DialogTitle>
             <DialogDescription>
-              Update the details for this soil sample.
+              Update the details for this soil sample recorded on {selectedData && selectedData.date instanceof Timestamp ? format(selectedData.date.toDate(), 'PP') : 'N/A'}.
             </DialogDescription>
           </DialogHeader>
           {selectedData && (
@@ -287,7 +322,7 @@ export function SoilDataTable() {
           <DialogHeader>
             <DialogTitle>Are you sure?</DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete the soil data entry dated <span className="font-semibold">{selectedData ? format(selectedData.date.toDate(), 'PP') : ''}</span>.
+              This action cannot be undone. This will permanently delete the soil data entry dated <span className="font-semibold">{selectedData && selectedData.date instanceof Timestamp ? format(selectedData.date.toDate(), 'PP') : ''}</span>.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -299,3 +334,5 @@ export function SoilDataTable() {
     </div>
   );
 }
+
+    

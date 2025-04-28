@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -12,50 +13,44 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { PlusCircle, Table, Settings, BarChart3 } from 'lucide-react';
 import { SoilDataCharts } from '@/components/soil-data-charts';
 
-// ✨ Firestore
-import { db } from '@/lib/firebase'; // Ajustá esta ruta si tu firebase.ts está en otra carpeta
-import { collection, getDocs } from 'firebase/firestore';
 
 export default function Dashboard() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("addData");
-  
-  // ✨ Para guardar los datos de Firestore
-  const [soilData, setSoilData] = useState<any[]>([]);
-  const [fetchingData, setFetchingData] = useState(false);
 
-  // ✨ Cargar datos de Firestore cuando el usuario esté listo
+  // ✨ Remove useState for soilData and fetchingData here
+  // const [soilData, setSoilData] = useState<any[]>([]);
+  // const [fetchingData, setFetchingData] = useState(false);
+
   useEffect(() => {
-    if (!loading && user) {
-      const fetchData = async () => {
-        setFetchingData(true);
-        try {
-          const querySnapshot = await getDocs(collection(db, `users/${user.uid}/soilData`));
-          const data = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...doc.data()
-          }));
-          setSoilData(data);
-        } catch (error) {
-          console.error("Error fetching soil data:", error);
-        }
-        setFetchingData(false);
-      };
-
-      fetchData();
-    } else if (!loading && !user) {
+    if (!loading && !user) {
       router.push('/');
     }
+    // ✨ Remove data fetching logic from here.
+    // SoilDataTable and SoilDataCharts will fetch their own data using onSnapshot
   }, [user, loading, router]);
 
-  if (loading || fetchingData) {
+
+  if (loading) { // ✨ Only check for auth loading now
     return (
       <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
         <LoadingSpinner />
       </div>
     );
   }
+
+  // Ensure user is loaded and exists before rendering dashboard content
+  if (!user) {
+     // Can show a message or redirect again, though useEffect should handle it
+    return (
+        <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
+         <p>Redirecting to login...</p>
+         <LoadingSpinner />
+       </div>
+    );
+  }
+
 
   return (
     <div className="space-y-8">
@@ -84,7 +79,8 @@ export default function Dashboard() {
               <CardDescription>Fill in the details for your new soil sample.</CardDescription>
             </CardHeader>
             <CardContent>
-              <SoilDataForm onFormSubmit={() => setActiveTab('viewData')} />
+               {/* Pass onFormSubmit to potentially switch tabs after successful save */}
+               <SoilDataForm onFormSubmit={() => setActiveTab('viewData')} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -96,8 +92,8 @@ export default function Dashboard() {
               <CardDescription>View, edit, or delete your recorded soil samples.</CardDescription>
             </CardHeader>
             <CardContent>
-              {/* ✨ Le paso soilData a la tabla */}
-              <SoilDataTable data={soilData} />
+               {/* ✨ SoilDataTable now fetches its own data */}
+              <SoilDataTable />
             </CardContent>
           </Card>
         </TabsContent>
@@ -109,7 +105,8 @@ export default function Dashboard() {
               <CardDescription>Visualize your soil health trends over time.</CardDescription>
             </CardHeader>
             <CardContent>
-              <SoilDataCharts data={soilData} /> {/* ✨ También le paso soilData a los charts */}
+               {/* ✨ SoilDataCharts now fetches its own data */}
+              <SoilDataCharts />
             </CardContent>
           </Card>
         </TabsContent>
@@ -129,3 +126,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+    

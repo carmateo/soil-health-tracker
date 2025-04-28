@@ -1,668 +1,611 @@
 
-'use client';
+"use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useForm, Controller, SubmitHandler, useWatch } from 'react-hook-form';
+import { useState, useEffect } from 'react';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { Timestamp, addDoc, collection, doc, updateDoc } from 'firebase/firestore';
 import { useFirebase } from '@/context/firebase-context';
 import { useAuth } from '@/context/auth-context';
-import { collection, addDoc, serverTimestamp, doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/hooks/use-toast';
-import { CalendarIcon, MapPin, LocateFixed, Globe, Lock } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from '@/components/ui/form';
-import type { SoilData, UserSettings as UserSettingsType } from '@/types/soil';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertTriangle, MapPin, Calendar as CalendarIcon, Globe, Lock } from 'lucide-react';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import type { SoilData } from '@/types/soil';
 import Image from 'next/image';
+import { LoadingSpinner } from './loading-spinner';
 
-
-// Base schema parts
+// Schemas
 const baseSchema = z.object({
-  date: z.date({ required_error: "Date is required." }),
-  location: z.string().optional(),
-  latitude: z.number().optional().nullable(), // Allow null
-  longitude: z.number().optional().nullable(), // Allow null
+  date: z.date().default(new Date()),
+  locationOption: z.enum(['gps', 'manual']).default('gps'),
+  manualLocation: z.string().optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
   privacy: z.enum(['public', 'private']),
 });
 
-// VESS measurement specific schema - extending base
-const vessFormSchema = baseSchema.extend({
+const vessSchema = z.object({
   measurementType: z.literal('vess'),
   vessScore: z.number().min(1).max(5),
-  // Ensure other measurement fields are explicitly optional/nullable for this type
-  sand: z.number().optional().nullable(),
-  clay: z.number().optional().nullable(),
-  silt: z.number().optional().nullable(),
 });
 
-// Composition measurement specific schema - extending base
-const compositionFormSchema = baseSchema.extend({
+const compositionSchema = z.object({
   measurementType: z.literal('composition'),
-  sand: z.number({ required_error: "Sand (cm) is required." }).min(0).nullable(), // Allow null initially maybe? No, required means non-null/non-undefined
-  clay: z.number({ required_error: "Clay (cm) is required." }).min(0).nullable(),
-  silt: z.number({ required_error: "Silt (cm) is required." }).min(0).nullable(),
-  // Ensure VESS score is explicitly optional/nullable for this type
-  vessScore: z.number().optional().nullable(),
+  sand: z.number().min(0, "Cannot be negative").optional(),
+  clay: z.number().min(0, "Cannot be negative").optional(),
+  silt: z.number().min(0, "Cannot be negative").optional(),
 }).refine(data => (data.sand ?? 0) + (data.clay ?? 0) + (data.silt ?? 0) > 0, {
-    message: "Total composition (sand + clay + silt) must be greater than 0 cm.",
-    path: ["sand"], // Assign error to one field or create a custom path if needed
+  message: "At least one measurement (Sand, Clay, or Silt) must be provided.",
+  path: ['sand'], // Apply error to one field for simplicity
 });
 
-// Combine schemas using discriminated union, dentro de una función
-const getFormSchema = () => z.discriminatedUnion('measurementType', [
-  vessFormSchema,
-  compositionFormSchema,
-]);
+
+// Combine schemas based on measurementType using refine/superRefine if needed,
+// but for the form structure, we'll handle conditional rendering.
+// The actual data saved will depend on the selected measurementType.
+const formSchema = z.union([
+    baseSchema.merge(vessSchema),
+    baseSchema.merge(compositionSchema)
+]).refine(data => {
+    if (data.locationOption === 'manual') {
+      return typeof data.manualLocation === 'string' && data.manualLocation.trim().length > 0;
+    }
+    return true;
+}, {
+    message: "Manual location name is required when selected.",
+    path: ['manualLocation'],
+}).refine(data => {
+    if (data.locationOption === 'gps') {
+        return data.latitude !== undefined && data.longitude !== undefined;
+    }
+    return true;
+}, {
+    message: "GPS coordinates could not be obtained. Please try again or enter manually.",
+    path: ['locationOption'], // Or a general form error field
+});
 
 
+type SoilFormInputs = z.infer<typeof formSchema>;
 
-type SoilFormInputs = z.infer<ReturnType<typeof getFormSchema>>;
+const VESS_IMAGES: Record<number, string> = {
+    1: 'https://picsum.photos/seed/vess1/200/200', // Replace with actual representative images
+    2: 'https://picsum.photos/seed/vess2/200/200',
+    3: 'https://picsum.photos/seed/vess3/200/200',
+    4: 'https://picsum.photos/seed/vess4/200/200',
+    5: 'https://picsum.photos/seed/vess5/200/200',
+};
 
-const VESS_IMAGES = [
-  { score: 1, url: 'https://picsum.photos/seed/vess1/200', description: 'Sq1: Very poor structure, compact, no aggregation.' },
-  { score: 2, url: 'https://picsum.photos/seed/vess2/200', description: 'Sq2: Poor structure, mainly large clods, few aggregates.' },
-  { score: 3, url: 'https://picsum.photos/seed/vess3/200', description: 'Sq3: Moderate structure, mix of clods and aggregates.' },
-  { score: 4, url: 'https://picsum.photos/seed/vess4/200', description: 'Sq4: Good structure, mainly aggregates, few clods.' },
-  { score: 5, url: 'https://picsum.photos/seed/vess5/200', description: 'Sq5: Excellent structure, porous, fully aggregated.' },
-];
+const VESS_DESCRIPTIONS: Record<number, string> = {
+    1: 'Very Poor: Dense, large clods, difficult root penetration.',
+    2: 'Poor: Large, angular blocks, limited root growth.',
+    3: 'Moderate: Mix of blocky and granular, moderate root penetration.',
+    4: 'Good: Mostly granular, good porosity, easy root growth.',
+    5: 'Excellent: Very friable, granular structure, extensive rooting.',
+};
 
 interface SoilDataFormProps {
-  initialData?: SoilData & { id: string }; // For editing existing data
-  onFormSubmit?: () => void; // Callback after successful submission/update
+  initialData?: SoilData & { id: string }; // For editing
+  onFormSubmit?: () => void;
 }
-
 
 export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   const { db } = useFirebase();
   const { user, settings } = useAuth();
   const { toast } = useToast();
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [isGpsLoading, setIsGpsLoading] = useState(false);
   const [step, setStep] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
-
-  // Function to generate default values based on measurement type
-  const getDefaultValues = (data?: SoilData & { id: string }, userSettings?: UserSettingsType | null): SoilFormInputs => {
-    const baseDefaults = {
-        date: new Date(),
-        privacy: userSettings?.defaultPrivacy || 'private',
-        location: '',
-        latitude: undefined,
-        longitude: undefined,
-    };
-
-    if (data) {
-      const commonData = {
-        ...baseDefaults,
-        date: data.date.toDate(),
-        location: data.location ?? '',
-        latitude: data.latitude ?? undefined,
-        longitude: data.longitude ?? undefined,
-        privacy: data.privacy,
-      };
-      if (data.measurementType === 'vess') {
-        return {
-          ...commonData,
-          measurementType: 'vess',
-          vessScore: data.vessScore ?? 3, // Provide default if null/undefined
-          sand: null,
-          clay: null,
-          silt: null,
-        };
-      } else if (data.measurementType === 'composition') {
-        return {
-          ...commonData,
-          measurementType: 'composition',
-          sand: data.sand ?? null, // Use null as default for nullable numbers
-          clay: data.clay ?? null,
-          silt: data.silt ?? null,
-          vessScore: null,
-        };
-      }
-    }
-
-    // Default for new form (starts as 'vess')
-    return {
-        ...baseDefaults,
-        measurementType: 'vess', // Ensure discriminator is set
-        vessScore: 3,
-        sand: null,
-        clay: null,
-        silt: null,
-      };
-  };
+  const [measurementType, setMeasurementType] = useState<'vess' | 'composition' | null>(initialData?.measurementType ?? null);
+  const [selectedVessScore, setSelectedVessScore] = useState<number>(initialData?.vessScore ?? 3); // Default VESS score
 
   const form = useForm<SoilFormInputs>({
-    resolver: zodResolver(getFormSchema()),
-    defaultValues: getDefaultValues(initialData, settings), // Let getDefaultValues handle all defaults
-    mode: 'onChange',
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      date: initialData?.date.toDate() ?? new Date(),
+      locationOption: initialData?.latitude ? 'gps' : (initialData?.location ? 'manual' : 'gps'),
+      manualLocation: initialData?.location ?? '',
+      latitude: initialData?.latitude,
+      longitude: initialData?.longitude,
+      privacy: initialData?.privacy ?? settings?.defaultPrivacy ?? 'private',
+      measurementType: initialData?.measurementType,
+      vessScore: initialData?.vessScore ?? 3,
+      sand: initialData?.sand,
+      clay: initialData?.clay,
+      silt: initialData?.silt,
+    },
   });
 
-   // Watch relevant fields
-  const watchedMeasurementType = useWatch({ control: form.control, name: "measurementType" });
-  const watchedSand = useWatch({ control: form.control, name: "sand" });
-  const watchedClay = useWatch({ control: form.control, name: "clay" });
-  const watchedSilt = useWatch({ control: form.control, name: "silt" });
-  const watchedVessScore = useWatch({ control: form.control, name: "vessScore" });
+  const watchMeasurementType = form.watch('measurementType');
+  const watchLocationOption = form.watch('locationOption');
+  const watchVessScore = form.watch('vessScore');
+  const watchSand = form.watch('sand');
+  const watchClay = form.watch('clay');
+  const watchSilt = form.watch('silt');
 
 
-  useEffect(() => {
-    // Reset form with appropriate defaults when initialData or settings change
-    // Make sure the reset value includes the measurementType
-    form.reset(getDefaultValues(initialData, settings));
-  }, [initialData, settings, form]); // Add form to dependency array for reset
+   // Update visual VESS score when form value changes
+   useEffect(() => {
+    if (watchVessScore !== undefined) {
+      setSelectedVessScore(watchVessScore);
+    }
+  }, [watchVessScore]);
 
-  const calculatePercentages = useCallback(() => {
-     if (watchedMeasurementType === 'composition') {
-        const sandCm = Number(watchedSand) || 0;
-        const clayCm = Number(watchedClay) || 0;
-        const siltCm = Number(watchedSilt) || 0;
-        const total = sandCm + clayCm + siltCm;
-
-        if (total > 0) {
-            const sandPercent = Math.round((sandCm / total) * 100);
-            const clayPercent = Math.round((clayCm / total) * 100);
-            // Ensure sum is 100% by adjusting silt
-            const siltPercent = 100 - sandPercent - clayPercent;
-            return { sandPercent, clayPercent, siltPercent };
-        }
-     }
-     return { sandPercent: undefined, clayPercent: undefined, siltPercent: undefined };
-  }, [watchedMeasurementType, watchedSand, watchedClay, watchedSilt]);
-
-  const { sandPercent, clayPercent, siltPercent } = calculatePercentages();
-
-  const handleNextStep = async () => {
-     const fieldsToValidate: (keyof SoilFormInputs)[] = ['date', 'location', 'latitude', 'longitude'];
-    const isValid = await form.trigger(fieldsToValidate);
-    if (isValid) {
-      setStep(2);
+  const handleGetGps = () => {
+    setIsGpsLoading(true);
+    setError(null); // Clear previous GPS errors
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          form.setValue('latitude', position.coords.latitude);
+          form.setValue('longitude', position.coords.longitude);
+          setIsGpsLoading(false);
+          toast({title: "GPS Location Obtained", description: "Coordinates successfully fetched."})
+        },
+        (error) => {
+          console.error("Geolocation error:", error);
+          setError(`GPS Error: ${error.message}. Please ensure location services are enabled and permissions granted.`);
+          form.setValue('locationOption', 'manual'); // Switch to manual if GPS fails
+          setIsGpsLoading(false);
+          toast({variant: "destructive", title: "GPS Error", description: "Could not obtain location. Switched to manual entry."})
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
     } else {
-       toast({
-         variant: 'destructive',
-         title: 'Validation Error',
-         description: 'Please fill in the required fields for Step 1.',
-       });
+      setError("Geolocation is not supported by this browser.");
+      form.setValue('locationOption', 'manual');
+      setIsGpsLoading(false);
+        toast({variant: "destructive", title: "GPS Not Supported", description: "Switched to manual entry."})
     }
   };
 
-  const handlePrevStep = () => {
-    setStep(1);
-  };
+   // Get GPS automatically if option is selected and no coords exist
+   useEffect(() => {
+    if (watchLocationOption === 'gps' && form.getValues('latitude') === undefined && !isGpsLoading) {
+        // Only fetch if explicitly GPS and no coordinates yet, and not already loading
+        handleGetGps();
+    }
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchLocationOption]); // Dependency only on the option itself
 
-   const handleGetLocation = () => {
-    if (!navigator.geolocation) {
-      toast({
-        variant: 'destructive',
-        title: 'Geolocation Error',
-        description: 'Geolocation is not supported by your browser.',
-      });
-      return;
+
+  const calculatePercentages = () => {
+    const sandCm = form.getValues('sand') ?? 0;
+    const clayCm = form.getValues('clay') ?? 0;
+    const siltCm = form.getValues('silt') ?? 0;
+    const total = sandCm + clayCm + siltCm;
+
+    if (total === 0) {
+        return { sandPercent: undefined, clayPercent: undefined, siltPercent: undefined };
     }
 
-    setIsFetchingLocation(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        form.setValue('latitude', position.coords.latitude, { shouldValidate: true });
-        form.setValue('longitude', position.coords.longitude, { shouldValidate: true });
-        setIsFetchingLocation(false);
-        toast({ title: 'Location fetched successfully!' });
-      },
-      (error) => {
-        setIsFetchingLocation(false);
-        console.error('Geolocation error:', error);
-        toast({
-          variant: 'destructive',
-          title: 'Geolocation Error',
-          description: `Could not get location: ${error.message}`,
-        });
-      }
-    );
+    return {
+        sandPercent: Math.round((sandCm / total) * 100),
+        clayPercent: Math.round((clayCm / total) * 100),
+        siltPercent: Math.round((siltCm / total) * 100),
+    };
   };
 
 
-  const onSubmit: SubmitHandler<SoilFormInputs> = async (data) => {
+  const onSubmit = async (data: SoilFormInputs) => {
     if (!user) {
-      toast({ variant: 'destructive', title: 'Error', description: 'You must be logged in.' });
+      setError("User not authenticated. Please log in.");
+      toast({ variant: "destructive", title: "Authentication Error", description: "You must be logged in to save data." });
       return;
     }
-
-    setIsLoading(true);
-
-    // Prepare data for Firestore, ensuring correct types based on measurementType
-    let submissionData: Omit<SoilData, 'id'>;
-
-    if (data.measurementType === 'vess') {
-        submissionData = {
-            userId: user.uid,
-            date: Timestamp.fromDate(data.date),
-            location: data.location || undefined,
-            latitude: data.latitude ?? undefined, // Use ?? for nullable fields
-            longitude: data.longitude ?? undefined,
-            measurementType: 'vess',
-            vessScore: data.vessScore,
-            privacy: data.privacy,
-            // Explicitly set composition fields to null/undefined for VESS type
-            sand: null,
-            clay: null,
-            silt: null,
-            sandPercent: undefined, // Percentages only exist for composition
-            clayPercent: undefined,
-            siltPercent: undefined,
-        };
-    } else { // measurementType is 'composition'
-        const calculatedPercentages = calculatePercentages(); // Recalculate on submit just in case
-        submissionData = {
-            userId: user.uid,
-            date: Timestamp.fromDate(data.date),
-            location: data.location || undefined,
-            latitude: data.latitude ?? undefined,
-            longitude: data.longitude ?? undefined,
-            measurementType: 'composition',
-            sand: data.sand ?? null, // Use ?? null for nullable numbers
-            clay: data.clay ?? null,
-            silt: data.silt ?? null,
-            sandPercent: calculatedPercentages.sandPercent,
-            clayPercent: calculatedPercentages.clayPercent,
-            siltPercent: calculatedPercentages.siltPercent,
-            privacy: data.privacy,
-            // Explicitly set VESS score to null/undefined for composition type
-            vessScore: null,
-        };
-    }
-
-
-     // Remove undefined fields before saving (Firestore handles undefined well, but this ensures cleaner data)
-    Object.keys(submissionData).forEach(key => {
-      const K = key as keyof typeof submissionData;
-      if (submissionData[K] === undefined) {
-         delete submissionData[K];
-      }
-    });
-
+    setLoading(true);
+    setError(null);
 
     try {
-       if (initialData?.id) {
-        // Update existing document
-        const docRef = doc(db, `users/${user.uid}/soilData`, initialData.id);
-        // Ensure we only update fields relevant to the potentially changed type
-        const updatePayload: Partial<SoilData> = { ...submissionData };
-        await updateDoc(docRef, updatePayload);
-        toast({ title: 'Success', description: 'Soil data updated successfully.' });
-       } else {
-         // Add new document
-        await addDoc(collection(db, `users/${user.uid}/soilData`), submissionData);
-        toast({ title: 'Success', description: 'Soil data saved successfully.' });
-        form.reset(getDefaultValues(undefined, settings)); // Reset form to initial new state
-         setStep(1); // Go back to step 1 after adding
-       }
+      // Prepare data common to both types
+      const baseData = {
+        userId: user.uid,
+        date: Timestamp.fromDate(data.date),
+        privacy: data.privacy,
+        ...(data.locationOption === 'manual' ? { location: data.manualLocation } : { latitude: data.latitude, longitude: data.longitude }),
+      };
 
-       if (onFormSubmit) {
-        onFormSubmit();
+      let finalData: Omit<SoilData, 'id'>;
+
+      if (data.measurementType === 'vess') {
+        finalData = {
+          ...baseData,
+          measurementType: 'vess',
+          vessScore: data.vessScore,
+        };
+      } else if (data.measurementType === 'composition') {
+          const percentages = calculatePercentages();
+          finalData = {
+            ...baseData,
+            measurementType: 'composition',
+            sand: data.sand,
+            clay: data.clay,
+            silt: data.silt,
+            sandPercent: percentages.sandPercent,
+            clayPercent: percentages.clayPercent,
+            siltPercent: percentages.siltPercent,
+        };
+      } else {
+        throw new Error("Invalid measurement type selected"); // Should not happen with proper form logic
       }
 
+      if (initialData?.id) {
+         // Update existing document
+         const docRef = doc(db, `users/${user.uid}/soilData`, initialData.id);
+         await updateDoc(docRef, finalData);
+         toast({ title: 'Data Updated', description: 'Soil sample data successfully updated.' });
+      } else {
+          // Add new document
+          await addDoc(collection(db, `users/${user.uid}/soilData`), finalData);
+          toast({ title: 'Data Saved', description: 'New soil sample data successfully saved.' });
+          form.reset({ // Reset form after successful submission of NEW data
+             date: new Date(),
+             locationOption: 'gps',
+             manualLocation: '',
+             latitude: undefined,
+             longitude: undefined,
+             privacy: settings?.defaultPrivacy ?? 'private',
+             measurementType: undefined, // Reset type selection
+             vessScore: 3,
+             sand: undefined,
+             clay: undefined,
+             silt: undefined,
+          });
+          setStep(1); // Reset steps
+          setMeasurementType(null);
+      }
+
+
+      if (onFormSubmit) {
+        onFormSubmit(); // Callback to potentially switch tabs or update UI
+      }
     } catch (error: any) {
       console.error('Error saving data:', error);
+      setError(error.message || 'Failed to save soil data. Please try again.');
       toast({
         variant: 'destructive',
-        title: 'Error Saving Data',
-        description: error.message || 'Could not save soil data. Please try again.',
+        title: 'Save Failed',
+        description: error.message || 'Could not save data.',
       });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-   const renderStepContent = () => {
-    switch (step) {
-      case 1:
-        return (
-          <div className="space-y-4">
-             {/* Date Picker */}
-            <FormField
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                  <FormItem className="flex flex-col">
-                    <FormLabel>Date of Sample</FormLabel>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            variant={"outline"}
-                            className={cn(
-                              "w-[240px] pl-3 text-left font-normal",
-                              !field.value && "text-muted-foreground"
-                            )}
-                          >
-                            {field.value ? (
-                              format(field.value, "PPP")
-                            ) : (
-                              <span>Pick a date</span>
-                            )}
-                            <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={field.value}
-                          onSelect={(date) => field.onChange(date)}
-                          disabled={(date) =>
-                            date > new Date() || date < new Date("1900-01-01")
-                          }
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-            {/* Location Input */}
-            <FormField
-              control={form.control}
-              name="location"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="flex items-center gap-1">
-                     <MapPin className="h-4 w-4" /> Optional: Location / Field Name
-                  </FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g., North Field, Backyard Plot" {...field} value={field.value ?? ''} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* GPS Coordinates */}
-            <div className="flex flex-col sm:flex-row gap-4 items-end">
-               <FormField
-                 control={form.control}
-                 name="latitude"
-                 render={({ field }) => (
-                   <FormItem className="flex-1">
-                     <FormLabel>Latitude</FormLabel>
-                     <FormControl>
-                       {/* Allow empty string, convert to number or undefined */}
-                       <Input type="number" step="any" placeholder="e.g., 34.0522" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
-                     </FormControl>
-                     <FormMessage />
-                   </FormItem>
-                 )}
-               />
-                <FormField
-                 control={form.control}
-                 name="longitude"
-                 render={({ field }) => (
-                   <FormItem className="flex-1">
-                     <FormLabel>Longitude</FormLabel>
-                     <FormControl>
-                        {/* Allow empty string, convert to number or undefined */}
-                       <Input type="number" step="any" placeholder="e.g., -118.2437" {...field} onChange={e => field.onChange(e.target.value === '' ? undefined : +e.target.value)} value={field.value ?? ''} />
-                     </FormControl>
-                     <FormMessage />
-                   </FormItem>
-                 )}
-               />
-               <Button type="button" variant="outline" onClick={handleGetLocation} disabled={isFetchingLocation} className="flex-shrink-0">
-                 <LocateFixed className={`h-4 w-4 ${isFetchingLocation ? 'animate-spin' : ''}`} />
-                 <span className="ml-2">{isFetchingLocation ? 'Fetching...' : 'Get Current Location'}</span>
-               </Button>
-             </div>
-
-
-            <Button onClick={handleNextStep} className="w-full sm:w-auto">Next Step</Button>
-          </div>
-        );
-      case 2:
-        return (
-          <div className="space-y-6">
-            {/* Measurement Type Selection */}
-            <FormField
-              control={form.control}
-              name="measurementType"
-              render={({ field }) => (
-                <FormItem className="space-y-3">
-                  <FormLabel>Measurement Type</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      onValueChange={(value) => {
-                        const newValue = value as 'vess' | 'composition';
-                        field.onChange(newValue);
-                        // Reset other measurement type fields when switching
-                        // Get current form values to preserve data where possible
-                         const currentValues = form.getValues();
-                         // Create a temporary object with the new measurementType to pass to getDefaultValues
-                         const tempObjectForDefaults = {
-                            ...currentValues,
-                            measurementType: newValue
-                         } as SoilData & { id: string }; // Cast needed as we only change type temporarily
-
-                         const newDefaults = getDefaultValues(tempObjectForDefaults, settings);
-
-                        // Reset the form with new defaults based on the selected type
-                         form.reset({
-                             ...newDefaults, // Use the full default structure for the new type
-                             // Keep step 1 data
-                             date: currentValues.date,
-                             location: currentValues.location,
-                             latitude: currentValues.latitude,
-                             longitude: currentValues.longitude,
-                             privacy: currentValues.privacy,
-                         });
-                         // Trigger validation after resetting potentially required fields
-                         form.trigger();
-                      }}
-                      value={field.value} // Use value directly
-                      className="flex flex-col sm:flex-row gap-4"
-                    >
-                      <FormItem className="flex items-center space-x-3 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="vess" />
-                        </FormControl>
-                        <FormLabel className="font-normal">
-                          VESS Score (Visual Evaluation)
-                        </FormLabel>
-                      </FormItem>
-                      <FormItem className="flex items-center space-x-3 space-y-0">
-                        <FormControl>
-                          <RadioGroupItem value="composition" />
-                        </FormControl>
-                        <FormLabel className="font-normal">
-                          Soil Composition (cm)
-                        </FormLabel>
-                      </FormItem>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-             {/* Conditional Fields */}
-            {watchedMeasurementType === 'vess' && (
-              <FormField
-                control={form.control}
-                name="vessScore"
-                 render={({ field: { value, onChange } }) => ( // Added type annotation for safety
-                  <FormItem>
-                    <FormLabel>VESS Score (1-5)</FormLabel>
-                     <FormControl>
-                       <>
-                        <Slider
-                          // defaultValue={[3]} // Remove default value if controlled
-                          value={[value ?? 3]} // Ensure value is defined for Slider
-                          onValueChange={(vals) => onChange(vals[0])}
-                          min={1}
-                          max={5}
-                          step={1}
-                          className="my-4"
-                        />
-                         <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                           <span>Sq1 (Poor)</span>
-                           <span>Sq3 (Moderate)</span>
-                           <span>Sq5 (Excellent)</span>
-                         </div>
-                        <div className="mt-4 p-4 border rounded-md bg-background vess-image-container">
-                           {VESS_IMAGES.find(img => img.score === (value ?? 3)) && (
-                              <div className="flex flex-col sm:flex-row items-center gap-4">
-                                 <Image
-                                    src={VESS_IMAGES.find(img => img.score === (value ?? 3))!.url}
-                                    alt={`VESS Score ${value ?? 3}`}
-                                    width={100}
-                                    height={100}
-                                    className="rounded-md border"
-                                  />
-                                <p className="text-sm">{VESS_IMAGES.find(img => img.score === (value ?? 3))!.description}</p>
-                              </div>
-                           )}
-                        </div>
-                        </>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            {watchedMeasurementType === 'composition' && (
-              <div className="space-y-4 p-4 border rounded-md bg-background">
-                 <h4 className="font-medium text-md mb-4">Soil Composition (cm)</h4>
-                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                   <FormField
-                     control={form.control}
-                     name="sand"
-                     render={({ field }) => (
-                       <FormItem>
-                         <FormLabel>Sand (cm)</FormLabel>
-                         <FormControl>
-                           {/* Ensure value is '' if null, and convert back to number or null */}
-                           <Input type="number" min="0" step="0.1" placeholder="e.g., 10.5" {...field} onChange={e => field.onChange(e.target.value === '' ? null : +e.target.value)} value={field.value ?? ''} />
-                         </FormControl>
-                         <FormMessage />
-                       </FormItem>
-                     )}
-                   />
-                   <FormField
-                     control={form.control}
-                     name="clay"
-                      render={({ field }) => (
-                       <FormItem>
-                         <FormLabel>Clay (cm)</FormLabel>
-                         <FormControl>
-                           <Input type="number" min="0" step="0.1" placeholder="e.g., 5.2" {...field} onChange={e => field.onChange(e.target.value === '' ? null : +e.target.value)} value={field.value ?? ''} />
-                         </FormControl>
-                         <FormMessage />
-                       </FormItem>
-                     )}
-                   />
-                   <FormField
-                     control={form.control}
-                     name="silt"
-                      render={({ field }) => (
-                       <FormItem>
-                         <FormLabel>Silt (cm)</FormLabel>
-                         <FormControl>
-                           <Input type="number" min="0" step="0.1" placeholder="e.g., 4.3" {...field} onChange={e => field.onChange(e.target.value === '' ? null : +e.target.value)} value={field.value ?? ''} />
-                         </FormControl>
-                         <FormMessage />
-                       </FormItem>
-                     )}
-                   />
-                 </div>
-                   {/* Display Percentages */}
-                   {(sandPercent !== undefined || clayPercent !== undefined || siltPercent !== undefined) && (
-                       <div className="mt-4 text-sm text-muted-foreground p-3 bg-secondary rounded-md">
-                           Calculated Composition:
-                           <span className="font-medium text-foreground ml-2">{sandPercent ?? 0}% Sand</span>,
-                           <span className="font-medium text-foreground ml-2">{clayPercent ?? 0}% Clay</span>,
-                           <span className="font-medium text-foreground ml-2">{siltPercent ?? 0}% Silt</span>
-                       </div>
-                   )}
-                   {/* Show form-level error if sum is zero */}
-                  {form.formState.errors.sand?.type === 'refine' && ( // Check for refine error specifically
-                    <p className="text-sm font-medium text-destructive">{form.formState.errors.sand.message}</p>
-                  )}
-              </div>
-            )}
-
-             {/* Privacy Setting */}
-             <FormField
-                control={form.control}
-                name="privacy"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Data Privacy</FormLabel>
-                     <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                           <SelectTrigger className="w-[180px]">
-                              <SelectValue placeholder="Select privacy" />
-                           </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                           <SelectItem value="private">
-                              <div className="flex items-center gap-2">
-                                <Lock className="h-4 w-4"/> Private (Only You)
-                              </div>
-                           </SelectItem>
-                           <SelectItem value="public">
-                               <div className="flex items-center gap-2">
-                                <Globe className="h-4 w-4"/> Public (Visible to All)
-                              </div>
-                           </SelectItem>
-                        </SelectContent>
-                     </Select>
-                    <FormDescription>
-                      Set who can see this data entry.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-
-            {/* Navigation and Submit Buttons */}
-            <div className="flex justify-between items-center pt-4">
-              <Button type="button" variant="outline" onClick={handlePrevStep}>
-                Previous Step
-              </Button>
-              <Button type="submit" disabled={isLoading || !form.formState.isValid}>
-                {isLoading ? (initialData ? 'Updating...' : 'Submitting...') : (initialData ? 'Update Data' : 'Submit Data')}
-              </Button>
-            </div>
-          </div>
-        );
-      default:
-        return null;
-    }
+  const nextStep = async () => {
+     const step1Fields: Array<keyof SoilFormInputs> = ['date', 'locationOption', 'manualLocation', 'latitude', 'longitude', 'privacy'];
+     const result = await form.trigger(step1Fields);
+     if (result) {
+        if (!form.getValues('measurementType')) {
+             form.setError('measurementType', { type: 'manual', message: 'Please select a measurement type.' });
+             return;
+        }
+        setStep(2);
+     } else {
+        toast({ variant: "destructive", title: "Validation Error", description: "Please fill in all required fields for Step 1." });
+     }
   };
+  const prevStep = () => setStep(1);
+
+  const percentages = watchMeasurementType === 'composition' ? calculatePercentages() : null;
 
 
   return (
-     <Form {...form}>
+    <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-         {renderStepContent()}
-       </form>
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Step 1: Date, Location, Privacy, Measurement Type */}
+        <div className={step === 1 ? 'block' : 'hidden'}>
+          <h2 className="text-xl font-semibold mb-4 border-b pb-2">Step 1: General Information</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+             {/* Date (Readonly) */}
+             <FormField
+                control={form.control}
+                name="date"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>📅 Date</FormLabel>
+                    <FormControl>
+                        <Input value={field.value.toLocaleDateString()} readOnly disabled className="bg-muted/50" />
+                    </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+
+             {/* Location */}
+            <FormField
+                control={form.control}
+                name="locationOption"
+                render={({ field }) => (
+                <FormItem className="space-y-3">
+                    <FormLabel>📍 Location</FormLabel>
+                    <FormControl>
+                    <RadioGroup
+                        onValueChange={(value) => {
+                            field.onChange(value);
+                            // Clear the other option's value
+                            if (value === 'gps') {
+                                form.setValue('manualLocation', '');
+                                handleGetGps(); // Attempt to get GPS when switched
+                            } else {
+                                form.setValue('latitude', undefined);
+                                form.setValue('longitude', undefined);
+                            }
+                        }}
+                        value={field.value}
+                        className="flex space-x-4"
+                    >
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                            <FormControl>
+                                <RadioGroupItem value="gps" />
+                            </FormControl>
+                            <FormLabel className="font-normal">Use GPS</FormLabel>
+                             {isGpsLoading && <LoadingSpinner size={16}/>}
+                        </FormItem>
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                            <FormControl>
+                                <RadioGroupItem value="manual" />
+                            </FormControl>
+                            <FormLabel className="font-normal">Enter Manually</FormLabel>
+                        </FormItem>
+                    </RadioGroup>
+                    </FormControl>
+                    {/* Conditionally show Manual Input or GPS status */}
+                    {field.value === 'manual' && (
+                         <FormField
+                            control={form.control}
+                            name="manualLocation"
+                            render={({ field: manualField }) => (
+                                <FormItem>
+                                <FormControl>
+                                    <Input placeholder="Enter field name or address" {...manualField} />
+                                </FormControl>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                            />
+                    )}
+                     {field.value === 'gps' && form.getValues('latitude') !== undefined && (
+                         <p className="text-sm text-muted-foreground">
+                         GPS: {form.getValues('latitude')?.toFixed(4)}, {form.getValues('longitude')?.toFixed(4)}
+                       </p>
+                    )}
+                     <FormMessage /> {/* For errors related to locationOption itself */}
+                </FormItem>
+                )}
+            />
+
+            {/* Privacy */}
+            <FormField
+                control={form.control}
+                name="privacy"
+                render={({ field }) => (
+                <FormItem>
+                    <FormLabel>👁️‍🗨️ Privacy</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                        <SelectTrigger>
+                        <SelectValue placeholder="Select privacy setting" />
+                        </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                        <SelectItem value="private">
+                            <div className="flex items-center gap-2"> <Lock className="h-4 w-4" /> Private (Only You)</div>
+                         </SelectItem>
+                        <SelectItem value="public">
+                           <div className="flex items-center gap-2"> <Globe className="h-4 w-4" /> Public (Visible to All)</div>
+                        </SelectItem>
+                    </SelectContent>
+                    </Select>
+                    <FormDescription>
+                        Default is {settings?.defaultPrivacy ?? 'private'}. Can be changed per entry.
+                    </FormDescription>
+                    <FormMessage />
+                </FormItem>
+                )}
+            />
+
+              {/* Measurement Type Selection */}
+             <FormField
+                control={form.control}
+                name="measurementType"
+                render={({ field }) => (
+                    <FormItem className="space-y-3 md:col-span-2">
+                    <FormLabel>📊 Measurement Type</FormLabel>
+                    <FormControl>
+                        <RadioGroup
+                         onValueChange={(value: 'vess' | 'composition') => {
+                            field.onChange(value);
+                            setMeasurementType(value); // Update local state for step transition logic
+                            // Reset other type's values when switching
+                            if (value === 'vess') {
+                                form.setValue('sand', undefined);
+                                form.setValue('clay', undefined);
+                                form.setValue('silt', undefined);
+                            } else {
+                                form.setValue('vessScore', undefined);
+                            }
+                            }}
+                        value={field.value}
+                        className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4"
+                        >
+                        <FormItem className="flex items-center space-x-3 space-y-0">
+                            <FormControl>
+                            <RadioGroupItem value="vess" />
+                            </FormControl>
+                            <FormLabel className="font-normal">
+                             VESS Score (Visual Evaluation)
+                            </FormLabel>
+                        </FormItem>
+                        <FormItem className="flex items-center space-x-3 space-y-0">
+                            <FormControl>
+                            <RadioGroupItem value="composition" />
+                            </FormControl>
+                            <FormLabel className="font-normal">
+                             Soil Composition (Sand/Clay/Silt in cm)
+                            </FormLabel>
+                        </FormItem>
+                        </RadioGroup>
+                    </FormControl>
+                     <FormMessage />
+                    </FormItem>
+                )}
+            />
+          </div>
+          <div className="mt-6 flex justify-end">
+             <Button type="button" onClick={nextStep} disabled={!watchMeasurementType}>
+              Next Step &rarr;
+            </Button>
+          </div>
+        </div>
+
+
+        {/* Step 2: Measurement Details */}
+        <div className={step === 2 ? 'block' : 'hidden'}>
+            <h2 className="text-xl font-semibold mb-4 border-b pb-2">
+                Step 2: {watchMeasurementType === 'vess' ? 'VESS Score Details' : 'Soil Composition Details'}
+            </h2>
+
+           {/* Conditional Fields based on measurementType */}
+           {watchMeasurementType === 'vess' && (
+             <FormField
+                control={form.control}
+                name="vessScore"
+                render={({ field }) => (
+                    <FormItem>
+                    <FormLabel>VESS Score (1-5)</FormLabel>
+                     <FormControl>
+                         <>
+                          <Slider
+                              defaultValue={[field.value ?? 3]} // Use local state for visual sync
+                              min={1}
+                              max={5}
+                              step={1}
+                               onValueChange={(value) => {
+                                  field.onChange(value[0]);
+                                  setSelectedVessScore(value[0]); // Update visual state immediately
+                              }}
+                              className="my-4"
+                              />
+                             <div className="flex justify-between text-sm text-muted-foreground mt-2 px-1">
+                                <span>1</span>
+                                <span>2</span>
+                                <span>3</span>
+                                <span>4</span>
+                                <span>5</span>
+                             </div>
+                            {/* Display Image and Description */}
+                            <div className="mt-4 p-4 border rounded-md bg-muted/30 flex flex-col sm:flex-row items-center gap-4">
+                                <Image
+                                    src={VESS_IMAGES[selectedVessScore]}
+                                    alt={`VESS Score ${selectedVessScore}`}
+                                    width={150}
+                                    height={150}
+                                    className="rounded-md border vess-image-container"
+                                    priority={false} // Smaller images, maybe not priority
+                                />
+                                <p className="text-center sm:text-left">{VESS_DESCRIPTIONS[selectedVessScore]}</p>
+                            </div>
+                        </>
+                     </FormControl>
+                    <FormMessage />
+                    </FormItem>
+                )}
+                />
+           )}
+
+            {watchMeasurementType === 'composition' && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <FormField
+                        control={form.control}
+                        name="sand"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Sand (cm)</FormLabel>
+                            <FormControl>
+                            <Input type="number" step="0.1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || undefined)} />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                     <FormField
+                        control={form.control}
+                        name="clay"
+                        render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Clay (cm)</FormLabel>
+                            <FormControl>
+                            <Input type="number" step="0.1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || undefined)} />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                    <FormField
+                        control={form.control}
+                        name="silt"
+                         render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Silt (cm)</FormLabel>
+                            <FormControl>
+                             <Input type="number" step="0.1" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || undefined)} />
+                            </FormControl>
+                             <FormMessage />
+                        </FormItem>
+                        )}
+                    />
+                     {/* Display Calculated Percentages */}
+                     {(watchSand || watchClay || watchSilt) && percentages && (
+                        <div className="sm:col-span-3 mt-4 p-4 border rounded-md bg-muted/30">
+                             <h4 className="font-medium mb-2 text-center">Calculated Composition (%)</h4>
+                            <div className="flex justify-around text-center">
+                                <div>
+                                    <p className="text-lg font-semibold text-yellow-700">{percentages.sandPercent ?? '--'}%</p>
+                                    <p className="text-sm text-muted-foreground">Sand</p>
+                                </div>
+                                <div>
+                                    <p className="text-lg font-semibold text-red-700">{percentages.clayPercent ?? '--'}%</p>
+                                     <p className="text-sm text-muted-foreground">Clay</p>
+                                </div>
+                                 <div>
+                                    <p className="text-lg font-semibold text-gray-600">{percentages.siltPercent ?? '--'}%</p>
+                                     <p className="text-sm text-muted-foreground">Silt</p>
+                                </div>
+                            </div>
+                        </div>
+                     )}
+                 </div>
+            )}
+
+            <div className="mt-6 flex justify-between">
+                <Button type="button" variant="outline" onClick={prevStep}>
+                 &larr; Previous Step
+                 </Button>
+                 <Button type="submit" disabled={loading}>
+                     {loading ? (initialData ? 'Updating...' : 'Saving...') : (initialData ? 'Update Data' : 'Save Data')}
+                 </Button>
+            </div>
+        </div>
+      </form>
     </Form>
   );
 }
+
+    
