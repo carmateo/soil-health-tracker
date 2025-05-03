@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -34,7 +35,8 @@ export function SiteHeader() {
       <div className="container flex h-16 items-center justify-between">
         <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-2">
            <Leaf className="h-6 w-6" />
-          <span className="font-bold text-lg">Soil Health Data Collection (SHDC)</span>
+           {/* Changed text and increased font size */}
+          <span className="font-bold text-xl">Soil Health Data Collection</span>
         </Link>
         <nav>
           {user && (
@@ -47,3 +49,4 @@ export function SiteHeader() {
     </header>
   );
 }
+

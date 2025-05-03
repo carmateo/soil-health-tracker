@@ -1,4 +1,5 @@
 
+
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -307,4 +308,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
 
