@@ -179,11 +179,11 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold text-primary">SHDC Dashboard</h1>
+      <h1 className="text-3xl font-bold text-primary">Dashboard</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         {/* Adjusted grid layout for better responsiveness and added more margin-bottom on mobile */}
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-2 mb-8 md:mb-16">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-2 mb-8 md:mb-12">
           <TabsTrigger value="addData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <PlusCircle className="h-4 w-4 sm:h-5 sm:w-5" /> Add Data
           </TabsTrigger>
@@ -307,3 +307,4 @@ export default function Dashboard() {
     </div>
   );
 }
+
