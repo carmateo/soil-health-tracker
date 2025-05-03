@@ -5,10 +5,11 @@ import { useAuth } from '@/context/auth-context';
 import { useFirebase } from '@/context/firebase-context';
 import { signOut } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
-import { LogOut, Leaf } from 'lucide-react'; // Using Leaf as a placeholder icon
+import { LogOut } from 'lucide-react'; // Removed Leaf import
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
+import Image from 'next/image'; // Import Next Image
 
 
 export function SiteHeader() {
@@ -34,8 +35,14 @@ export function SiteHeader() {
     <header className="sticky top-0 z-40 w-full border-b bg-primary text-primary-foreground shadow-sm">
       <div className="container flex h-16 items-center justify-between">
         <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-2">
-           <Leaf className="h-6 w-6" />
-           {/* Changed text and increased font size */}
+           {/* Replace Leaf icon with Image component */}
+           <Image
+             src="/Logo Vector.png" // Path relative to the 'public' directory
+             alt="SHDC Logo"
+             width={30} // Adjust width as needed
+             height={30} // Adjust height as needed (was h-6 -> 24px)
+             className="object-contain" // Ensure the image scales correctly
+           />
           <span className="font-bold text-xl">Soil Health Data Collection</span>
         </Link>
         <nav>
@@ -49,4 +56,3 @@ export function SiteHeader() {
     </header>
   );
 }
-
