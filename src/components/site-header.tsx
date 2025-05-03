@@ -5,7 +5,7 @@ import { useAuth } from '@/context/auth-context';
 import { useFirebase } from '@/context/firebase-context';
 import { signOut } from 'firebase/auth';
 import { Button } from '@/components/ui/button';
-import { LogOut } from 'lucide-react'; // Removed Leaf import
+import { LogOut } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -34,7 +34,8 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-primary text-primary-foreground shadow-sm">
       <div className="container flex h-16 items-center justify-between">
-        <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-2">
+        {/* Increased space-x from 2 to 3 */}
+        <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-3">
            {/* Replace Leaf icon with Image component */}
            <Image
              src="/Logo Vector.png" // Path relative to the 'public' directory
