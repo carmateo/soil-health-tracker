@@ -179,7 +179,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold text-primary">SoilHealth Dashboard</h1>
+      <h1 className="text-3xl font-bold text-primary">SHDC Dashboard</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         {/* Adjusted grid layout for better responsiveness and added more margin-bottom on mobile */}

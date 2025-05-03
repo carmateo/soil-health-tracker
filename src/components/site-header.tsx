@@ -34,7 +34,7 @@ export function SiteHeader() {
       <div className="container flex h-16 items-center justify-between">
         <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-2">
            <Leaf className="h-6 w-6" />
-          <span className="font-bold text-lg">SoilHealth Tracker</span>
+          <span className="font-bold text-lg">Soil Health Data Collection (SHDC)</span>
         </Link>
         <nav>
           {user && (

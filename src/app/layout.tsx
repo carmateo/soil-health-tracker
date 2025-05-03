@@ -13,7 +13,7 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
-  title: 'SoilHealth Tracker',
+  title: 'SHDC: Soil Health Data Collection',
   description: 'Track your soil health data',
 };
 
