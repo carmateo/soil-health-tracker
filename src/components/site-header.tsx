@@ -44,6 +44,8 @@ export function SiteHeader() {
              width={30} // Adjust width as needed
              height={30} // Adjust height as needed (was h-6 -> 24px)
              className="object-contain" // Ensure the image scales correctly
+             style={{ marginLeft: '1cm'
+ }}
            />
           <span className="font-bold text-xl">Soil Health Data Collection</span>
         </Link>
