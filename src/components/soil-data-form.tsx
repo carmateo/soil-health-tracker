@@ -25,6 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
+import { getLocationDetails } from '@/ai/flows/get-location-details-flow'; // Import the new flow
 
 
 // Base schema for common fields
@@ -57,8 +58,29 @@ const compositionSpecificSchema = z.object({
 });
 
 // Define the individual schemas with the measurementType literal
-const vessFormSchema = baseSchema.merge(vessSpecificSchema);
-const compositionFormSchema = baseSchema.merge(compositionSpecificSchema);
+const vessFormSchema = baseSchema.extend({
+  measurementType: z.literal('vess'),
+  vessScore: z.number().min(1).max(5).default(3),
+  // Add nulls for composition fields to satisfy the union base
+  sand: z.null().optional(),
+  clay: z.null().optional(),
+  silt: z.null().optional(),
+  sandPercent: z.null().optional(),
+  clayPercent: z.null().optional(),
+  siltPercent: z.null().optional(),
+});
+
+const compositionFormSchema = baseSchema.extend({
+  measurementType: z.literal('composition'),
+  sand: z.number().min(0, "Cannot be negative").optional(),
+  clay: z.number().min(0, "Cannot be negative").optional(),
+  silt: z.number().min(0, "Cannot be negative").optional(),
+  sandPercent: z.number().optional(),
+  clayPercent: z.number().optional(),
+  siltPercent: z.number().optional(),
+   // Add nulls for VESS fields
+  vessScore: z.null().optional(),
+});
 
 
 // Combine schemas using discriminated union
@@ -87,14 +109,24 @@ const formSchema = z.discriminatedUnion('measurementType', [
         const hasClay = typeof data.clay === 'number' && data.clay >= 0;
         const hasSilt = typeof data.silt === 'number' && data.silt >= 0;
         // If any value is entered, it must be non-negative
-        if ((data.sand !== undefined && !hasSand) || (data.clay !== undefined && !hasClay) || (data.silt !== undefined && !hasSilt)) {
+        if ((data.sand !== undefined && data.sand !== null && !hasSand) || (data.clay !== undefined && data.clay !== null && !hasClay) || (data.silt !== undefined && data.silt !== null && !hasSilt)) {
             return false; // Found a negative value
         }
-        return hasSand || hasClay || hasSilt; // At least one must be validly entered (>= 0)
+        // Allow submission if any value is 0, require at least one non-zero positive value for calculation? Let's allow zeros.
+        const anyValueEntered = data.sand !== undefined || data.clay !== undefined || data.silt !== undefined;
+        // If any value is entered, at least one must be >= 0 (which is covered by the negative check above)
+        // But we need to ensure *something* is entered. Let's adjust: at least one must be defined and non-negative.
+         const isValidComposition = (data.sand === undefined || hasSand) &&
+                                  (data.clay === undefined || hasClay) &&
+                                  (data.silt === undefined || hasSilt) &&
+                                  (hasSand || hasClay || hasSilt); // At least one must be defined and non-negative
+
+        return isValidComposition;
     }
     return true;
 }, {
-    message: "At least one measurement (Sand, Clay, or Silt) must be provided and non-negative for composition.",
+    // Updated message to be clearer about non-negative requirement
+    message: "At least one measurement (Sand, Clay, or Silt) must be provided and be a non-negative number (0 or greater) for composition.",
     path: ['sand'], // Apply error to one field, or handle more granularly
 });
 
@@ -135,6 +167,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   const [measurementType, setMeasurementType] = useState<'vess' | 'composition' | undefined>(initialData?.measurementType);
   const [selectedVessScore, setSelectedVessScore] = useState<number>(initialData?.vessScore ?? 3); // Default VESS score for slider visual
   const [isCalendarOpen, setIsCalendarOpen] = useState(false); // State for calendar popover
+  const [locationDetailsLoading, setLocationDetailsLoading] = useState(false); // Loading state for reverse geocoding
+
 
   const form = useForm<SoilFormInputs>({
     resolver: zodResolver(formSchema),
@@ -142,8 +176,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       date: initialData?.date?.toDate() ?? new Date(), // Initialize with current date or initial data
       locationOption: initialData?.latitude ? 'gps' : (initialData?.location ? 'manual' : 'gps'),
       manualLocation: initialData?.location ?? '',
-      latitude: initialData?.latitude,
-      longitude: initialData?.longitude,
+      latitude: initialData?.latitude ?? undefined, // Use undefined if null from initialData
+      longitude: initialData?.longitude ?? undefined, // Use undefined if null from initialData
       privacy: initialData?.privacy ?? settings?.defaultPrivacy ?? 'private',
       measurementType: initialData?.measurementType ?? 'vess', // Default to vess if no initial data or type
       // Conditional defaults based on measurement type
@@ -152,7 +186,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         : { vessScore: 3 } // Default if new or type changes
       ),
       ...(initialData?.measurementType === 'composition'
-        ? { sand: initialData.sand, clay: initialData.clay, silt: initialData.silt }
+        ? { sand: initialData.sand ?? undefined, clay: initialData.clay ?? undefined, silt: initialData.silt ?? undefined } // Use undefined if null
         : { sand: undefined, clay: undefined, silt: undefined } // Default if new or type changes
       ),
     },
@@ -169,7 +203,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
    // Update visual VESS score when form value changes
    useEffect(() => {
-    if (watchVessScore !== undefined) {
+    if (watchVessScore !== undefined && watchVessScore !== null) {
       setSelectedVessScore(watchVessScore);
     }
   }, [watchVessScore]);
@@ -186,8 +220,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
          form.resetField('sand');
          form.resetField('clay');
          form.resetField('silt');
-         // Ensure VESS score has a default if it was previously undefined
-         if (form.getValues('vessScore') === undefined) {
+         // Ensure VESS score has a default if it was previously undefined or null
+         if (form.getValues('vessScore') === undefined || form.getValues('vessScore') === null) {
             form.setValue('vessScore', 3, { shouldValidate: true });
             setSelectedVessScore(3); // Sync visual state
          }
@@ -201,6 +235,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   const handleGetGps = () => {
     setIsGpsLoading(true);
     setGpsError(null); // Clear previous GPS errors
+    setLocationDetailsLoading(false); // Reset location details loading
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -209,12 +244,12 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
           setIsGpsLoading(false);
           setGpsError(null); // Clear error on success
           toast({title: "GPS Location Obtained", description: "Coordinates successfully fetched."})
+          // Automatically trigger reverse geocoding after getting coordinates
+          // fetchLocationDetails(position.coords.latitude, position.coords.longitude); // Now handled in onSubmit
         },
         (error) => {
           console.error("Geolocation error:", error);
           setGpsError(`GPS Error: ${error.message}. Please ensure location services are enabled and permissions granted.`);
-          // Don't automatically switch to manual, let user decide
-          // form.setValue('locationOption', 'manual');
           setIsGpsLoading(false);
           toast({variant: "destructive", title: "GPS Error", description: "Could not obtain location. You may need to grant permission or enter manually."})
         },
@@ -248,7 +283,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     const total = sandCm + clayCm + siltCm;
 
     if (total <= 0) { // Ensure total is positive to avoid division by zero or negative percentages
-        return { sandPercent: undefined, clayPercent: undefined, siltPercent: undefined };
+        return { sandPercent: null, clayPercent: null, siltPercent: null }; // Return nulls
     }
 
     // Calculate percentages
@@ -296,7 +331,6 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         }
     }
 
-
     return {
         sandPercent: sandRounded,
         clayPercent: clayRounded,
@@ -314,6 +348,32 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     setLoading(true);
     setError(null);
     setGpsError(null); // Clear errors on submit attempt
+    setLocationDetailsLoading(false); // Reset reverse geocoding loading
+
+    let locationDetails: { country?: string; region?: string; city?: string } = {};
+
+    // Fetch location details *before* saving if GPS is selected and coords exist
+    if (data.locationOption === 'gps' && data.latitude && data.longitude) {
+        setLocationDetailsLoading(true);
+        try {
+            locationDetails = await getLocationDetails({
+                latitude: data.latitude,
+                longitude: data.longitude,
+            });
+            console.log("Reverse geocoding successful:", locationDetails);
+        } catch (geoError) {
+            console.error("Reverse geocoding error:", geoError);
+            toast({
+                variant: "default", // Use default, not destructive, as it's non-critical
+                title: "Location Details Unavailable",
+                description: "Could not fetch country/region for the coordinates.",
+            });
+            // Proceed without location details, don't block submission
+        } finally {
+            setLocationDetailsLoading(false);
+        }
+    }
+
 
     try {
       // Prepare data common to both types
@@ -323,8 +383,15 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         privacy: data.privacy,
         locationOption: data.locationOption, // Save the option chosen
         ...(data.locationOption === 'manual'
-            ? { location: data.manualLocation, latitude: null, longitude: null } // Set lat/lon to null if manual
-            : { latitude: data.latitude ?? null, longitude: data.longitude ?? null, location: null } // Set location to null if GPS, ensure lat/lon are null if undefined
+            ? { location: data.manualLocation, latitude: null, longitude: null, country: null, region: null, city: null } // Clear all location fields for manual
+            : {
+                latitude: data.latitude ?? null,
+                longitude: data.longitude ?? null,
+                location: null, // Explicitly null for GPS
+                country: locationDetails.country ?? null, // Add fetched details or null
+                region: locationDetails.region ?? null,
+                city: locationDetails.city ?? null,
+              }
         ),
       };
 
@@ -334,8 +401,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         finalData = {
           ...baseData,
           measurementType: 'vess',
-          vessScore: data.vessScore,
-          // Ensure composition fields are explicitly null or undefined
+          vessScore: data.vessScore ?? null, // Ensure null if undefined
+          // Ensure composition fields are explicitly null
           sand: null,
           clay: null,
           silt: null,
@@ -351,10 +418,10 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
             sand: data.sand ?? null, // Ensure null if undefined
             clay: data.clay ?? null, // Ensure null if undefined
             silt: data.silt ?? null, // Ensure null if undefined
-            sandPercent: percentages.sandPercent ?? null, // Ensure null if undefined
-            clayPercent: percentages.clayPercent ?? null, // Ensure null if undefined
-            siltPercent: percentages.siltPercent ?? null, // Ensure null if undefined
-            // Ensure VESS field is explicitly null or undefined
+            sandPercent: percentages.sandPercent ?? null, // Ensure null if undefined/null
+            clayPercent: percentages.clayPercent ?? null, // Ensure null if undefined/null
+            siltPercent: percentages.siltPercent ?? null, // Ensure null if undefined/null
+            // Ensure VESS field is explicitly null
             vessScore: null,
         };
       } else {
@@ -363,11 +430,12 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       }
 
       // Clean finalData: Remove undefined fields before sending to Firestore
-      Object.keys(finalData).forEach(key => {
-         if ((finalData as any)[key] === undefined) {
-             (finalData as any)[key] = null; // Convert undefined to null for Firestore compatibility
-         }
-      });
+       Object.keys(finalData).forEach(key => {
+           const typedKey = key as keyof typeof finalData;
+           if (finalData[typedKey] === undefined) {
+               (finalData as any)[typedKey] = null; // Convert undefined to null for Firestore compatibility
+           }
+       });
 
 
       if (initialData?.id) {
@@ -701,7 +769,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                          <div>
                           <Slider
                               // Controlled component: value MUST come from field.value
-                              value={[field.value ?? 3]} // Provide default if field.value is undefined
+                              value={[field.value ?? 3]} // Provide default if field.value is undefined/null
                               min={1}
                               max={5}
                               step={1}
@@ -728,6 +796,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                         height={150}
                                         className="rounded-md border vess-image-container"
                                         priority={false} // Smaller images, maybe not priority
+                                        data-ai-hint={`soil structure VESS score ${selectedVessScore}`}
                                     />
                                     <p className="text-center sm:text-left text-sm">{VESS_DESCRIPTIONS[selectedVessScore]}</p>
                                 </div>
@@ -809,7 +878,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         />
                     </div>
                      {/* Display Calculated Percentages */}
-                      {percentages && (percentages.sandPercent !== undefined || percentages.clayPercent !== undefined || percentages.siltPercent !== undefined) && (
+                      {percentages && (percentages.sandPercent !== null || percentages.clayPercent !== null || percentages.siltPercent !== null) && (
                         <div className="mt-4 p-4 border rounded-md bg-muted/30">
                              <h4 className="font-medium mb-2 text-center">Calculated Composition (%)</h4>
                              <div className="flex justify-around text-center gap-4">
@@ -847,8 +916,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                  &larr; Previous Step
                  </Button>
                  {/* Submit button */}
-                 <Button type="submit" disabled={loading || !form.formState.isValid}>
-                     {loading ? (initialData ? 'Updating...' : 'Saving...') : (initialData ? 'Update Data' : 'Save Data')}
+                 <Button type="submit" disabled={loading || locationDetailsLoading || !form.formState.isValid}>
+                     {loading ? (initialData ? 'Updating...' : 'Saving...') : (locationDetailsLoading ? 'Getting location...' : (initialData ? 'Update Data' : 'Save Data'))}
                  </Button>
             </div>
         </div>

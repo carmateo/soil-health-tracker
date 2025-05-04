@@ -46,10 +46,19 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
   const filteredData = useMemo(() => {
     console.log("SoilDataTable Filtering: Input data:", validData); // Debug: Log input data
     return validData.filter((entry) => {
-      // Location filter (check both manual location and coords if GPS)
-      const locationMatch = filterLocation === '' ||
-        (entry.locationOption === 'manual' && entry.location?.toLowerCase().includes(filterLocation.toLowerCase())) ||
-        (entry.locationOption === 'gps' && `GPS: ${entry.latitude?.toFixed(2)}, ${entry.longitude?.toFixed(2)}`.toLowerCase().includes(filterLocation.toLowerCase()));
+      // Location filter (check manual, coords, country, region, city)
+       const locationString = entry.locationOption === 'manual'
+         ? entry.location?.toLowerCase() ?? ''
+         : [
+             entry.latitude?.toFixed(4),
+             entry.longitude?.toFixed(4),
+             entry.city?.toLowerCase(),
+             entry.region?.toLowerCase(),
+             entry.country?.toLowerCase(),
+           ].filter(Boolean).join(', ').toLowerCase(); // Join non-null/undefined parts
+
+      const locationMatch = filterLocation === '' || locationString.includes(filterLocation.toLowerCase());
+
 
       // Type filter
       const typeMatch = filterType === 'all' || entry.measurementType === filterType;
@@ -98,7 +107,7 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
         <div className="flex flex-col sm:flex-row gap-4 items-center">
           <Input
             type="text"
-            placeholder="Filter by Location/GPS..."
+            placeholder="Filter by Location/GPS/Region..."
             value={filterLocation}
             onChange={(e) => { setFilterLocation(e.target.value); setCurrentPage(1); }} // Reset page on filter change
             className="max-w-xs flex-grow"
@@ -156,14 +165,19 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
                     <TableCell>
                       {entry.locationOption === 'manual' ? (
                         entry.location || 'N/A'
-                      ) : entry.locationOption === 'gps' && entry.latitude !== undefined ? (
+                      ) : entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null ? (
                           <Tooltip>
-                              <TooltipTrigger className="cursor-help">
-                                 GPS Coords
+                              <TooltipTrigger className="cursor-help text-left">
+                                 {/* Display City, Region, Country if available, otherwise Coords */}
+                                 { [entry.city, entry.region, entry.country].filter(Boolean).join(', ') ||
+                                   `Lat: ${entry.latitude.toFixed(4)}, Lon: ${entry.longitude.toFixed(4)}` }
                              </TooltipTrigger>
                              <TooltipContent>
                                  <p>Lat: {entry.latitude.toFixed(5)}</p>
-                                 <p>Lon: {entry.longitude?.toFixed(5)}</p>
+                                 <p>Lon: {entry.longitude.toFixed(5)}</p>
+                                 {entry.city && <p>City: {entry.city}</p>}
+                                 {entry.region && <p>Region: {entry.region}</p>}
+                                 {entry.country && <p>Country: {entry.country}</p>}
                              </TooltipContent>
                          </Tooltip>
                       ) : (

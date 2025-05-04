@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import { useAuth } from '@/context/auth-context';
@@ -133,6 +132,7 @@ export default function Dashboard() {
                  return;
              }
 
+             // Convert Firestore potentially null values to explicit null for consistency
              fetchedData.push({
                id: doc.id,
                userId: docData.userId || user.uid,
@@ -141,6 +141,9 @@ export default function Dashboard() {
                locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
                latitude: docData.latitude ?? null,
                longitude: docData.longitude ?? null,
+               country: docData.country ?? null, // Added
+               region: docData.region ?? null, // Added
+               city: docData.city ?? null, // Added
                measurementType: docData.measurementType,
                vessScore: docData.measurementType === 'vess' ? (docData.vessScore ?? null) : null,
                sand: docData.measurementType === 'composition' ? (docData.sand ?? null) : null,
@@ -362,4 +365,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
