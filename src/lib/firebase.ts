@@ -2,8 +2,8 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp, getApps, getApp, type FirebaseOptions } from "firebase/app";
 import { getAuth } from "firebase/auth";
-// Keep firestore import, but remove collectionGroup export
-import { getFirestore } from "firebase/firestore";
+// Import specific Firestore functions needed, including collectionGroup
+import { getFirestore, collectionGroup } from "firebase/firestore";
 
 // Your web app's Firebase configuration (hardcoded)
 const firebaseConfig: FirebaseOptions = {
@@ -22,5 +22,5 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Export initialized services
-export { app, auth, db };
+// Export initialized services and specific Firestore functions
+export { app, auth, db, collectionGroup };
