@@ -21,10 +21,16 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import type { SoilData } from '@/types/soil';
 import Image from 'next/image';
 import { LoadingSpinner } from './loading-spinner';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { cn } from "@/lib/utils";
+import { format } from "date-fns";
+
 
 // Base schema for common fields
 const baseSchema = z.object({
-  date: z.date().default(new Date()),
+  // Keep date as z.date(), default will be handled by useForm
+  date: z.date(),
   locationOption: z.enum(['gps', 'manual']).default('gps'),
   manualLocation: z.string().optional(),
   latitude: z.number().optional(),
@@ -80,14 +86,16 @@ const formSchema = z.discriminatedUnion('measurementType', [
         const hasSand = typeof data.sand === 'number' && data.sand >= 0;
         const hasClay = typeof data.clay === 'number' && data.clay >= 0;
         const hasSilt = typeof data.silt === 'number' && data.silt >= 0;
-        return hasSand || hasClay || hasSilt; // At least one must be validly entered
+        // If any value is entered, it must be non-negative
+        if ((data.sand !== undefined && !hasSand) || (data.clay !== undefined && !hasClay) || (data.silt !== undefined && !hasSilt)) {
+            return false; // Found a negative value
+        }
+        return hasSand || hasClay || hasSilt; // At least one must be validly entered (>= 0)
     }
     return true;
 }, {
     message: "At least one measurement (Sand, Clay, or Silt) must be provided and non-negative for composition.",
-    // Apply error to a field for visibility, e.g., sand
-    // You might need to adjust error path visibility based on UX
-    path: ['sand'],
+    path: ['sand'], // Apply error to one field, or handle more granularly
 });
 
 
@@ -126,11 +134,12 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   // Measurement type state controls which fields are shown in step 2
   const [measurementType, setMeasurementType] = useState<'vess' | 'composition' | undefined>(initialData?.measurementType);
   const [selectedVessScore, setSelectedVessScore] = useState<number>(initialData?.vessScore ?? 3); // Default VESS score for slider visual
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false); // State for calendar popover
 
   const form = useForm<SoilFormInputs>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      date: initialData?.date?.toDate() ?? new Date(),
+      date: initialData?.date?.toDate() ?? new Date(), // Initialize with current date or initial data
       locationOption: initialData?.latitude ? 'gps' : (initialData?.location ? 'manual' : 'gps'),
       manualLocation: initialData?.location ?? '',
       latitude: initialData?.latitude,
@@ -238,8 +247,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     const siltCm = form.getValues('silt') ?? 0;
     const total = sandCm + clayCm + siltCm;
 
-    if (total === 0) {
-        // Return undefined or 0 based on preference
+    if (total <= 0) { // Ensure total is positive to avoid division by zero or negative percentages
         return { sandPercent: undefined, clayPercent: undefined, siltPercent: undefined };
     }
 
@@ -286,7 +294,6 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
            else if (clayRounded === maxVal) clayRounded += finalDiff;
            else siltRounded += finalDiff;
         }
-
     }
 
 
@@ -312,7 +319,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       // Prepare data common to both types
       const baseData = {
         userId: user.uid,
-        date: Timestamp.fromDate(data.date), // Use the date from the form
+        date: Timestamp.fromDate(data.date), // Use the selected date
         privacy: data.privacy,
         locationOption: data.locationOption, // Save the option chosen
         ...(data.locationOption === 'manual'
@@ -377,7 +384,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
           // Reset form to defaults AFTER successful submission
           form.reset({
-            date: new Date(),
+            date: new Date(), // Reset date to current date
             locationOption: 'gps',
             manualLocation: '',
             latitude: undefined, // Reset coords explicitly
@@ -477,21 +484,53 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
         <div className={step === 1 ? 'block' : 'hidden'}>
           <h2 className="text-xl font-semibold mb-4 border-b pb-2">Step 1: General Information</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-             {/* Date (Readonly) */}
+
+             {/* Date Picker */}
              <FormField
                 control={form.control}
                 name="date"
                 render={({ field }) => (
-                    <FormItem>
-                    <FormLabel>📅 Date</FormLabel>
-                    <FormControl>
-                        {/* Display formatted date, input itself is controlled by react-hook-form */}
-                        <Input value={field.value instanceof Date ? field.value.toLocaleDateString() : ''} readOnly disabled className="bg-muted/50 cursor-not-allowed" />
-                    </FormControl>
-                    <FormMessage />
+                    <FormItem className="flex flex-col">
+                        <FormLabel>📅 Date</FormLabel>
+                        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                            <PopoverTrigger asChild>
+                                <FormControl>
+                                    <Button
+                                    variant={"outline"}
+                                    className={cn(
+                                        "w-full pl-3 text-left font-normal",
+                                        !field.value && "text-muted-foreground"
+                                    )}
+                                    >
+                                    {field.value ? (
+                                        format(field.value, "PPP") // Format selected date nicely
+                                    ) : (
+                                        <span>Pick a date</span>
+                                    )}
+                                    <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                                    </Button>
+                                </FormControl>
+                            </PopoverTrigger>
+                             <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                mode="single"
+                                selected={field.value}
+                                // Update form value and close popover on select
+                                onSelect={(date) => {
+                                    field.onChange(date);
+                                    setIsCalendarOpen(false); // Close calendar after selection
+                                }}
+                                // Optionally disable future dates if needed
+                                // disabled={(date) => date > new Date()}
+                                initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                        <FormMessage />
                     </FormItem>
                 )}
-                />
+             />
+
 
              {/* Location */}
             <FormField
@@ -658,7 +697,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     <FormItem>
                     <FormLabel>VESS Score (1-5)</FormLabel>
                      <FormControl>
-                        {/* Wrap Slider and related elements */}
+                        {/* Use a simple div wrapper, Fragment caused issues with IDs */}
                          <div>
                           <Slider
                               // Controlled component: value MUST come from field.value
