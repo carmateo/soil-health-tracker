@@ -33,9 +33,10 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-primary text-primary-foreground shadow-sm">
-      <div className="container flex h-16 items-center justify-between">
-        {/* Increased space-x from 2 to 3 and added pl-4 for left padding */}
-        <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-3 pl-4">
+      {/* Increased horizontal padding from default container value to px-6 */}
+      <div className="container flex h-16 items-center justify-between px-6">
+        {/* Removed pl-4 as padding is now handled by the container */}
+        <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-3">
            {/* Replace Leaf icon with Image component */}
            <Image
              src="/Logo Vector.png" // Path relative to the 'public' directory
