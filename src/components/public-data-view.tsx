@@ -7,25 +7,28 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData,
 import { useFirebase } from '@/context/firebase-context';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, User } from 'lucide-react';
+import { AlertTriangle, User, MapPin } from 'lucide-react'; // Added MapPin icon
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { SoilDataCharts } from '@/components/soil-data-charts';
 import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip components
 
 export function PublicDataView() {
   const { db } = useFirebase();
   const [publicData, setPublicData] = useState<Array<SoilData & { id: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<'all' | string>('all');
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null); // Initialize to null, force selection
+  const [selectedLocationKey, setSelectedLocationKey] = useState<string | null>(null); // Key for the selected location
+
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    let unsubscribe = () => {}; // Initialize unsubscribe function
+    let unsubscribe = () => {};
 
     if (!db) {
       setError("Database connection not available.");
@@ -33,40 +36,29 @@ export function PublicDataView() {
       return;
     }
 
-    try { // Wrap query setup and listener attachment in try-catch
-        // Use the imported collectionGroup function
+    try {
         const soilDataCollectionGroupRef = collectionGroup(db, 'soilData');
         const publicQuery = query(
             soilDataCollectionGroupRef,
             where('privacy', '==', 'public'),
             orderBy('date', 'desc')
-            // Note: Firestore collection group queries require an index.
-            // You'll need to create a composite index in Firebase console:
-            // Collection ID: soilData
-            // Fields: privacy (Ascending), date (Descending)
-            // Query Scope: Collection group
+            // Index required: Collection ID: soilData, Fields: privacy (Asc), date (Desc), Scope: Collection group
         );
 
-
-        unsubscribe = onSnapshot( // Assign unsubscribe within the try block
+        unsubscribe = onSnapshot(
           publicQuery,
           (querySnapshot: QuerySnapshot<DocumentData>) => {
             console.log(`PublicDataView: Snapshot received: ${querySnapshot.size} public documents.`);
             const fetchedData: Array<SoilData & { id: string }> = [];
             querySnapshot.forEach((doc) => {
               const docData = doc.data();
-              // Extract userId from the document path (users/{userId}/soilData/{docId})
               const parentPathSegments = doc.ref.parent.path.split('/');
-              // Check if parent path is valid before extracting userId
                if (parentPathSegments.length < 2) {
                   console.warn(`PublicDataView: Invalid document path for doc ${doc.id}, skipping.`);
                   return;
                }
-               const userId = parentPathSegments[parentPathSegments.length - 2]; // The segment before 'soilData' should be the userId
+               const userId = parentPathSegments[parentPathSegments.length - 2];
 
-              console.log(`PublicDataView: Processing public doc ${doc.id} from user ${userId}:`, docData);
-
-              // Basic validation (similar to dashboard)
               let date = docData.date;
               if (!(date instanceof Timestamp) || !isValid(date.toDate())) {
                  console.warn(`PublicDataView: Doc ${doc.id} has invalid date, skipping.`);
@@ -83,7 +75,7 @@ export function PublicDataView() {
 
               fetchedData.push({
                 id: doc.id,
-                userId: userId, // Use the extracted userId
+                userId: userId,
                 date: date,
                 location: docData.location ?? null,
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
@@ -100,17 +92,29 @@ export function PublicDataView() {
                 sandPercent: docData.measurementType === 'composition' ? (docData.sandPercent ?? null) : null,
                 clayPercent: docData.measurementType === 'composition' ? (docData.clayPercent ?? null) : null,
                 siltPercent: docData.measurementType === 'composition' ? (docData.siltPercent ?? null) : null,
-                privacy: docData.privacy, // Should always be 'public' based on query
+                privacy: docData.privacy,
               });
             });
             console.log("PublicDataView: Processed public data:", fetchedData);
             setPublicData(fetchedData);
+
+            // Automatically select the first user if none is selected and data exists
+            if (!selectedUserId && fetchedData.length > 0) {
+                const firstUserId = fetchedData[0].userId;
+                setSelectedUserId(firstUserId);
+                // Also select the first location for that user
+                const firstUserLocations = getUniqueLocations(fetchedData.filter(d => d.userId === firstUserId));
+                if (firstUserLocations.length > 0) {
+                    setSelectedLocationKey(firstUserLocations[0].key);
+                } else {
+                    setSelectedLocationKey(null); // No locations for the first user?
+                }
+            }
             setLoading(false);
             setError(null);
           },
-          (err) => { // Error handler for onSnapshot
+          (err) => {
             console.error("PublicDataView: Error fetching public soil data:", err);
-            // Check for specific Firestore index error
             if (err.code === 'failed-precondition') {
                  setError("Failed to load public data. A database index is likely required. Please check the Firebase console to create the necessary index for the 'soilData' collection group (querying 'privacy' and ordering by 'date').");
             } else {
@@ -121,19 +125,19 @@ export function PublicDataView() {
           }
         );
 
-    } catch (initError) { // Catch errors during query setup
+    } catch (initError) {
          console.error("PublicDataView: Error initializing query or listener:", initError);
          setError(`Failed to initialize public data view. Error: ${(initError as Error).message}. Ensure Firestore configuration is correct.`);
          setLoading(false);
          setPublicData([]);
     }
 
-
     return () => {
       console.log("PublicDataView: Unsubscribing from Firestore listener.");
-      unsubscribe(); // Call the unsubscribe function defined outside/inside try
+      unsubscribe();
     };
-  }, [db]); // Dependency array remains [db]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db]); // Rerun only when db changes
 
   // Get unique user IDs for the selector
   const userIds = useMemo(() => {
@@ -142,19 +146,80 @@ export function PublicDataView() {
     return Array.from(ids);
   }, [publicData]);
 
-  // Filter data based on selected user
-  const filteredChartData = useMemo(() => {
-    if (selectedUserId === 'all') {
-      return publicData;
+  // Function to generate a unique key and display name for each location
+  const getLocationKeyAndName = (entry: SoilData): { key: string; name: string; fullDetails: string } => {
+    if (entry.locationOption === 'manual' && entry.location) {
+      const key = `manual_${entry.location}`;
+      return { key, name: entry.location, fullDetails: entry.location };
+    } else if (entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null) {
+      const lat = entry.latitude.toFixed(4);
+      const lon = entry.longitude.toFixed(4);
+      const key = `gps_${lat}_${lon}`;
+      const detailsArray = [entry.city, entry.region, entry.country].filter(Boolean);
+      const detailsString = detailsArray.length > 0 ? ` (${detailsArray.join(', ')})` : '';
+      const name = `GPS: ${lat}, ${lon}${detailsString.length > 20 ? detailsString.substring(0, 17) + '...' : detailsString}`;
+      const fullDetails = `Lat: ${entry.latitude.toFixed(5)}, Lon: ${entry.longitude.toFixed(5)}${detailsArray.length > 0 ? ` (${detailsArray.join(', ')})` : ''}`;
+      return { key, name, fullDetails };
     }
-    return publicData.filter(entry => entry.userId === selectedUserId);
+    const key = `unknown_${entry.id}`; // Fallback key
+    return { key, name: 'Unknown Location', fullDetails: 'No location data' };
+  };
+
+  // Get unique locations *for the selected user*
+  const uniqueLocations = useMemo(() => {
+    if (!selectedUserId) return [];
+    return getUniqueLocations(publicData.filter(entry => entry.userId === selectedUserId));
   }, [publicData, selectedUserId]);
 
+  // Helper to extract unique locations
+  function getUniqueLocations(data: Array<SoilData & { id: string }>): Array<{ key: string; name: string; fullDetails: string }> {
+      const locationsMap = new Map<string, { name: string; fullDetails: string }>();
+      data.forEach(entry => {
+          const { key, name, fullDetails } = getLocationKeyAndName(entry);
+          if (!locationsMap.has(key)) {
+              locationsMap.set(key, { name, fullDetails });
+          }
+      });
+      return Array.from(locationsMap.entries()).map(([key, { name, fullDetails }]) => ({ key, name, fullDetails }));
+  }
+
+
+  // Filter data based on selected user *and* selected location
+  const filteredChartData = useMemo(() => {
+     if (!selectedUserId || !selectedLocationKey) {
+      return []; // Don't show data if user or location isn't selected
+    }
+    return publicData.filter(entry => {
+        const entryLocationKey = getLocationKeyAndName(entry).key;
+        return entry.userId === selectedUserId && entryLocationKey === selectedLocationKey;
+    });
+  }, [publicData, selectedUserId, selectedLocationKey]);
+
   const selectedUserDisplay = useMemo(() => {
-    if (selectedUserId === 'all') return 'All Users';
+    if (!selectedUserId) return 'No User Selected';
     // Basic obfuscation for display
     return `User ${selectedUserId.substring(0, 6)}...`;
   }, [selectedUserId]);
+
+  const selectedLocationDisplay = useMemo(() => {
+    if (!selectedLocationKey) return 'No Location Selected';
+    const location = uniqueLocations.find(loc => loc.key === selectedLocationKey);
+    return location ? location.name : 'Unknown Location';
+  }, [selectedLocationKey, uniqueLocations]);
+
+  // Handle user selection change - reset location
+  const handleUserChange = (userId: string) => {
+      setSelectedUserId(userId);
+      // Find locations for the *newly* selected user
+      const newLocations = getUniqueLocations(publicData.filter(entry => entry.userId === userId));
+      if (newLocations.length > 0) {
+          // Select the first location for the new user
+          setSelectedLocationKey(newLocations[0].key);
+      } else {
+          // No locations for this user
+          setSelectedLocationKey(null);
+      }
+  };
 
 
   if (loading) {
@@ -176,71 +241,110 @@ export function PublicDataView() {
   }
 
   return (
+     <TooltipProvider>
     <div className="space-y-6">
-      {/* User Selector */}
+      {/* User and Location Selectors */}
       <div className="flex flex-col sm:flex-row gap-4 items-center">
-        <Select value={selectedUserId} onValueChange={(value) => setSelectedUserId(value)}>
-           <SelectTrigger className="w-full sm:w-[250px]">
+        {/* User Selector */}
+         <Select value={selectedUserId ?? ""} onValueChange={handleUserChange}>
+           <SelectTrigger className="w-full sm:w-[200px]">
             <div className="flex items-center gap-2">
               <User className="h-4 w-4 text-muted-foreground" />
               <SelectValue placeholder="Select User" />
             </div>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">
-               <div className="flex items-center gap-2">
-                 <span>All Users</span>
-               </div>
-            </SelectItem>
-            {userIds.map(id => (
-              <SelectItem key={id} value={id}>
-                 <div className="flex items-center gap-2">
-                    {/* Obfuscate ID in dropdown */}
+            {userIds.length === 0 && !loading ? (
+                <SelectItem value="no-users" disabled>No public users found</SelectItem>
+             ) : (
+                userIds.map(id => (
+                <SelectItem key={id} value={id}>
+                    <div className="flex items-center gap-2">
                     <span>User {id.substring(0, 6)}...</span>
-                 </div>
-              </SelectItem>
-            ))}
+                    </div>
+                </SelectItem>
+                ))
+            )}
           </SelectContent>
         </Select>
-        {userIds.length === 0 && !loading && (
-           <p className="text-sm text-muted-foreground">No public users found.</p>
-        )}
+
+        {/* Location Selector - Only enabled if a user is selected */}
+         <Select
+            value={selectedLocationKey ?? ""}
+            onValueChange={(key) => setSelectedLocationKey(key)}
+            disabled={!selectedUserId || uniqueLocations.length === 0}
+            >
+           <SelectTrigger className="w-full sm:w-[300px]">
+             <div className="flex items-center gap-2">
+               <MapPin className="h-4 w-4 text-muted-foreground" />
+               <SelectValue placeholder={selectedUserId ? "Select Location" : "Select User First"} />
+             </div>
+           </SelectTrigger>
+           <SelectContent>
+             {uniqueLocations.length === 0 && selectedUserId ? (
+                 <SelectItem value="no-locations" disabled>No locations for this user</SelectItem>
+             ) : (
+                uniqueLocations.map(loc => (
+                    <SelectItem key={loc.key} value={loc.key}>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="flex items-center gap-2 truncate">
+                                    <span>{loc.name}</span>
+                                </div>
+                             </TooltipTrigger>
+                             <TooltipContent side="right" align="start">
+                                <p>{loc.fullDetails}</p>
+                             </TooltipContent>
+                         </Tooltip>
+                     </SelectItem>
+                ))
+             )}
+           </SelectContent>
+         </Select>
+
       </div>
 
-      {/* Charts Section */}
-      {publicData.length > 0 ? (
-        <div className="space-y-6">
-          {/* Soil Data Trends Chart */}
-           <Card className="bg-card shadow-md border-border">
-             <CardHeader>
-               <CardTitle>{selectedUserDisplay}: Data Trends</CardTitle>
-               <CardDescription>Visualize soil health trends over time.</CardDescription>
-             </CardHeader>
-             <CardContent>
-               {filteredChartData.length > 0 ? (
-                 <SoilDataCharts data={filteredChartData} />
-               ) : (
-                 <p className="text-center text-muted-foreground py-10">No data available for {selectedUserDisplay} to display trend charts.</p>
-               )}
-             </CardContent>
-           </Card>
+      {/* Charts Section - Only show if both user and location are selected */}
+      {selectedUserId && selectedLocationKey ? (
+         <>
+         {filteredChartData.length > 0 ? (
+            <div className="space-y-6">
+                {/* Soil Data Trends Chart */}
+                <Card className="bg-card shadow-md border-border">
+                    <CardHeader>
+                    <CardTitle>{selectedUserDisplay} - {selectedLocationDisplay}: Data Trends</CardTitle>
+                    <CardDescription>Visualize soil health trends over time for the selected location.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <SoilDataCharts data={filteredChartData} />
+                    </CardContent>
+                </Card>
 
-           {/* Pedotransfer Analysis Chart */}
-            <PedotransferAnalysisChart data={filteredChartData} />
-            {/* The PedotransferAnalysisChart already includes its own Card structure */}
+                {/* Pedotransfer Analysis Chart */}
+                <PedotransferAnalysisChart data={filteredChartData} />
 
-            {/* Display message if a specific user is selected but has no composition data */}
-            {selectedUserId !== 'all' && filteredChartData.length > 0 && !filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
-                 <p className="text-sm text-center text-muted-foreground mt-2">
-                    No soil composition data found for {selectedUserDisplay} to perform Pedotransfer Analysis.
-                 </p>
-            )}
+                {/* Message if no composition data for the selection */}
+                {!filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
+                    <p className="text-sm text-center text-muted-foreground mt-2">
+                        No soil composition data found for {selectedUserDisplay} at {selectedLocationDisplay} to perform Pedotransfer Analysis.
+                    </p>
+                )}
 
-        </div>
+            </div>
+         ) : (
+            // This case might occur if the selected user/location combo has no data (though filtering should handle this)
+            // Or if data is still loading/filtering
+            <p className="text-center text-muted-foreground py-10">No data available for {selectedUserDisplay} at {selectedLocationDisplay}.</p>
+         )}
+         </>
       ) : (
-         <p className="text-center text-muted-foreground py-10">No public soil data found overall.</p>
+         // Prompt to select user and location
+         <p className="text-center text-muted-foreground py-10">
+            {publicData.length === 0 ? 'No public soil data found overall.' : 'Please select a user and location to view their data.'}
+         </p>
       )}
     </div>
+     </TooltipProvider>
   );
 }
 
