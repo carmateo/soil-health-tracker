@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { format, isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MapPin, Calendar, TestTubeDiagonal, Sigma, Percent, Edit, Trash2, AlertTriangle } from 'lucide-react'; // Use appropriate icons
+import { MapPin, Calendar, TestTubeDiagonal, Sigma, Percent, Edit, Trash2, AlertTriangle, Globe, Lock } from 'lucide-react'; // Use appropriate icons
 import {
   AlertDialog,
   AlertDialogAction,
@@ -142,7 +142,7 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
                  <TableHead className="text-center w-[90px]"><Tooltip><TooltipTrigger>Sand</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
                  <TableHead className="text-center w-[90px]"><Tooltip><TooltipTrigger>Clay</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
                  <TableHead className="text-center w-[90px]"><Tooltip><TooltipTrigger>Silt</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
-                 <TableHead className="text-center w-[60px]">👁️‍🗨️</TableHead>
+                 <TableHead className="text-center w-[60px]">Privacy</TableHead>
                  {/* Add Actions column */}
                  <TableHead className="text-center w-[100px]">Actions</TableHead>
               </TableRow>
@@ -168,12 +168,13 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
                       ) : entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null ? (
                           <Tooltip>
                               <TooltipTrigger className="cursor-help text-left">
-                                 {/* Show Coords then (Region, Country) */}
                                  {(() => {
                                     const coordString = `Lat: ${entry.latitude.toFixed(4)}, Lon: ${entry.longitude.toFixed(4)}`;
                                     // Prioritize Region, then Country for the parenthesis part
-                                    const details = [entry.region, entry.country].filter(Boolean).join(', ');
-                                    return details ? `${coordString} (${details})` : coordString;
+                                    // Filter out null/undefined/empty strings before joining
+                                    const detailsArray = [entry.region, entry.country].filter(detail => detail && detail.trim() !== '');
+                                    const detailsString = detailsArray.join(', ');
+                                    return detailsString ? `${coordString} (${detailsString})` : coordString;
                                  })()}
                              </TooltipTrigger>
                              <TooltipContent>
@@ -216,7 +217,16 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
                          ) : '-'}
                        </TableCell>
                      ))}
-                     <TableCell className="text-center">{entry.privacy === 'public' ? '🌍' : '🔒'}</TableCell>
+                     <TableCell className="text-center">
+                        <Tooltip>
+                            <TooltipTrigger>
+                                {entry.privacy === 'public' ? <Globe className="h-4 w-4 text-green-600 mx-auto" /> : <Lock className="h-4 w-4 text-red-600 mx-auto" />}
+                             </TooltipTrigger>
+                             <TooltipContent>
+                                <p>{entry.privacy === 'public' ? 'Public' : 'Private'}</p>
+                             </TooltipContent>
+                         </Tooltip>
+                     </TableCell>
                      {/* Actions Cell */}
                      <TableCell className="text-center">
                         <Tooltip>
@@ -295,5 +305,3 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
     </TooltipProvider>
   );
 }
-
-    
