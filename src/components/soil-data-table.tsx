@@ -9,18 +9,36 @@ import { Button } from '@/components/ui/button';
 import { format, isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { MapPin, Calendar, TestTubeDiagonal, Sigma, Percent } from 'lucide-react'; // Use appropriate icons
+import { MapPin, Calendar, TestTubeDiagonal, Sigma, Percent, Edit, Trash2, AlertTriangle } from 'lucide-react'; // Use appropriate icons
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { useToast } from '@/hooks/use-toast';
+
 
 interface SoilDataTableProps {
   data: Array<SoilData & { id: string }>;
+  onEdit: (entry: SoilData & { id: string }) => void; // Callback for edit action
+  onDelete: (entryId: string) => Promise<void>; // Callback for delete action
 }
 
 const ITEMS_PER_PAGE = 10;
 
-export function SoilDataTable({ data }: SoilDataTableProps) {
+export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
   const [filterLocation, setFilterLocation] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'vess' | 'composition'>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null); // Track which entry is being deleted
+  const { toast } = useToast();
+
 
   // Ensure data is always an array, even if null/undefined initially
   const validData = useMemo(() => Array.isArray(data) ? data : [], [data]);
@@ -51,6 +69,25 @@ export function SoilDataTable({ data }: SoilDataTableProps) {
   const goToPage = (page: number) => {
     setCurrentPage(Math.max(1, Math.min(page, totalPages)));
   };
+
+  // Handle confirmed delete action
+  const handleDeleteConfirm = async (entryId: string) => {
+     setIsDeleting(entryId);
+     try {
+       await onDelete(entryId);
+       toast({ title: "Entry Deleted", description: "The soil data entry has been removed." });
+       // Optionally reset to page 1 if the last item on the current page was deleted
+       if (paginatedData.length === 1 && currentPage > 1) {
+            setCurrentPage(currentPage - 1);
+       }
+     } catch (error) {
+       console.error("Error deleting entry:", error);
+       toast({ variant: "destructive", title: "Delete Failed", description: "Could not delete the entry. Please try again." });
+     } finally {
+        setIsDeleting(null); // Reset deleting state
+     }
+  };
+
 
    console.log("SoilDataTable: Rendering table with paginated data:", paginatedData); // Debug: Log data being rendered
 
@@ -92,19 +129,19 @@ export function SoilDataTable({ data }: SoilDataTableProps) {
                  <TableHead className="w-[120px]"> <Calendar className="inline-block mr-1 h-4 w-4" /> Date</TableHead>
                  <TableHead> <MapPin className="inline-block mr-1 h-4 w-4" /> Location</TableHead>
                  <TableHead className="w-[100px]">Type</TableHead>
-                 <TableHead className="text-center w-[100px]">VESS</TableHead>
-                 <TableHead className="text-center w-[100px]"><Tooltip><TooltipTrigger>Sand</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
-                 <TableHead className="text-center w-[100px]"><Tooltip><TooltipTrigger>Clay</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
-                 <TableHead className="text-center w-[100px]"><Tooltip><TooltipTrigger>Silt</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
-                 <TableHead className="text-center w-[80px]">👁️‍🗨️</TableHead>
-                 {/* Add Actions column if needed */}
-                 {/* <TableHead className="text-right w-[100px]">Actions</TableHead> */}
+                 <TableHead className="text-center w-[80px]">VESS</TableHead>
+                 <TableHead className="text-center w-[90px]"><Tooltip><TooltipTrigger>Sand</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
+                 <TableHead className="text-center w-[90px]"><Tooltip><TooltipTrigger>Clay</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
+                 <TableHead className="text-center w-[90px]"><Tooltip><TooltipTrigger>Silt</TooltipTrigger><TooltipContent><p>Value (cm) / Percent (%)</p></TooltipContent></Tooltip></TableHead>
+                 <TableHead className="text-center w-[60px]">👁️‍🗨️</TableHead>
+                 {/* Add Actions column */}
+                 <TableHead className="text-center w-[100px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedData.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center h-24 text-muted-foreground">
+                  <TableCell colSpan={9} className="text-center h-24 text-muted-foreground">
                     {validData.length > 0 ? 'No results match your filters.' : 'No data recorded yet. Go to "Add Data" to start.'}
                   </TableCell>
                 </TableRow>
@@ -147,7 +184,7 @@ export function SoilDataTable({ data }: SoilDataTableProps) {
                      {['sand', 'clay', 'silt'].map((comp) => (
                        <TableCell key={comp} className="text-center">
                          {entry.measurementType === 'composition' ? (
-                           entry[comp as keyof SoilData] !== undefined ? (
+                           entry[comp as keyof SoilData] !== null && entry[comp as keyof SoilData] !== undefined ? (
                              <Tooltip>
                                <TooltipTrigger className="cursor-help">
                                  {entry[comp as keyof SoilData]} <span className="text-xs text-muted-foreground">cm</span>
@@ -161,15 +198,49 @@ export function SoilDataTable({ data }: SoilDataTableProps) {
                        </TableCell>
                      ))}
                      <TableCell className="text-center">{entry.privacy === 'public' ? '🌍' : '🔒'}</TableCell>
-                     {/* Add Actions Cell if needed */}
-                     {/* <TableCell className="text-right">
-                        <Button variant="ghost" size="icon">
-                            <Edit className="h-4 w-4" />
-                        </Button>
-                         <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                         </Button>
-                     </TableCell> */}
+                     {/* Actions Cell */}
+                     <TableCell className="text-center">
+                        <Tooltip>
+                           <TooltipTrigger asChild>
+                             <Button variant="ghost" size="icon" onClick={() => onEdit(entry)} className="hover:text-primary" aria-label="Edit">
+                                 <Edit className="h-4 w-4" />
+                             </Button>
+                           </TooltipTrigger>
+                           <TooltipContent><p>Edit Entry</p></TooltipContent>
+                        </Tooltip>
+
+                         <AlertDialog>
+                           <Tooltip>
+                             <TooltipTrigger asChild>
+                               <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive/80" aria-label="Delete" disabled={isDeleting === entry.id}>
+                                      {isDeleting === entry.id ? <Trash2 className="h-4 w-4 animate-pulse" /> : <Trash2 className="h-4 w-4" />}
+                                  </Button>
+                               </AlertDialogTrigger>
+                              </TooltipTrigger>
+                             <TooltipContent><p>Delete Entry</p></TooltipContent>
+                           </Tooltip>
+                           <AlertDialogContent>
+                             <AlertDialogHeader>
+                               <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                               <AlertDialogDescription>
+                                 This action cannot be undone. This will permanently delete the soil data entry recorded on <span className="font-semibold">{entry.date && isValid(entry.date.toDate()) ? format(entry.date.toDate(), 'PP') : 'Invalid Date'}</span>.
+                               </AlertDialogDescription>
+                             </AlertDialogHeader>
+                             <AlertDialogFooter>
+                               <AlertDialogCancel disabled={isDeleting === entry.id}>Cancel</AlertDialogCancel>
+                               {/* Use AlertDialogAction which is styled as the primary/confirm button */}
+                               <AlertDialogAction
+                                  onClick={() => handleDeleteConfirm(entry.id)}
+                                  disabled={isDeleting === entry.id}
+                                  className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                >
+                                 {isDeleting === entry.id ? 'Deleting...' : 'Yes, delete'}
+                               </AlertDialogAction>
+                             </AlertDialogFooter>
+                           </AlertDialogContent>
+                         </AlertDialog>
+                     </TableCell>
                   </TableRow>
                 ))
               )}

@@ -11,66 +11,100 @@ import { UserSettings } from '@/components/user-settings';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { PlusCircle, Table, Settings, BarChart3, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Table, Settings, BarChart3, AlertTriangle, Edit, XCircle } from 'lucide-react';
 import { SoilDataCharts } from '@/components/soil-data-charts';
-import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart'; // Import the new component
-import { collection, onSnapshot, query, orderBy, Timestamp } from "firebase/firestore";
+import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart';
+import { collection, onSnapshot, query, orderBy, Timestamp, deleteDoc, doc } from "firebase/firestore";
 import { useFirebase } from '@/context/firebase-context';
-import type { SoilData } from '@/types/soil'; // Import the type
+import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
+import { Button } from '@/components/ui/button'; // Import Button
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
-  const { db } = useFirebase(); // Get Firestore instance
+  const { db } = useFirebase();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("addData");
   const [isClient, setIsClient] = useState(false);
-  const [soilData, setSoilData] = useState<Array<SoilData & { id: string }>>([]); // Use specific type
-  const [dataLoading, setDataLoading] = useState(true); // Separate loading state for data
+  const [soilData, setSoilData] = useState<Array<SoilData & { id: string }>>([]);
+  const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [editingEntry, setEditingEntry] = useState<(SoilData & { id: string }) | null>(null); // State for editing
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Callback for form submission success
+  // Callback for form submission success (add or edit)
   const handleFormSubmit = useCallback(() => {
      console.log("Dashboard: Form submitted, switching tab to view data.");
-    setActiveTab('viewData');
-    // Data update will be handled by the listener
+     setEditingEntry(null); // Clear editing state
+     setActiveTab('viewData');
+     // Data update will be handled by the listener
   }, []);
+
+  // Callback to initiate editing
+  const handleEdit = useCallback((entry: SoilData & { id: string }) => {
+    console.log("Dashboard: Starting edit for entry:", entry.id);
+    setEditingEntry(entry);
+    setActiveTab('editData'); // Switch to a dedicated (or reused) edit tab/view
+  }, []);
+
+   // Callback to cancel editing
+   const handleCancelEdit = useCallback(() => {
+       console.log("Dashboard: Cancelling edit.");
+       setEditingEntry(null);
+       setActiveTab('viewData'); // Go back to viewing data
+   }, []);
+
+  // Callback to handle deletion
+  const handleDelete = useCallback(async (entryId: string) => {
+    if (!user || !db) {
+      console.error("Delete error: User or DB not available.");
+      throw new Error("Authentication or database connection issue."); // Throw error to be caught by table component
+    }
+    console.log("Dashboard: Deleting entry:", entryId);
+    const docRef = doc(db, `users/${user.uid}/soilData`, entryId);
+    try {
+      await deleteDoc(docRef);
+      console.log("Dashboard: Entry deleted successfully:", entryId);
+      // Data removal from state will be handled by the listener
+    } catch (error) {
+      console.error("Dashboard: Error deleting entry:", error);
+      throw error; // Re-throw error to be caught and handled in the table component's UI
+    }
+  }, [user, db]);
+
 
   // Real-time data fetching effect
   useEffect(() => {
-    let unsubscribe = () => {}; // Initialize unsubscribe function
+    let unsubscribe = () => {};
 
     if (user && isClient && db) {
-      setDataLoading(true); // Start loading when user/db is available
-      setDataError(null); // Reset error
+      setDataLoading(true);
+      setDataError(null);
       const dataPath = `users/${user.uid}/soilData`;
       console.log("Dashboard: Setting up listener for path:", dataPath);
 
       const q = query(
           collection(db, dataPath),
-          orderBy('date', 'desc') // Order by date descending for table view initially
+          orderBy('date', 'desc')
       );
 
       unsubscribe = onSnapshot(
         q,
         (querySnapshot) => {
-           console.log(`Dashboard: Snapshot received: ${querySnapshot.size} documents.`); // Debug log
+           console.log(`Dashboard: Snapshot received: ${querySnapshot.size} documents.`);
           const fetchedData: Array<SoilData & { id: string }> = [];
           querySnapshot.forEach((doc) => {
              const docData = doc.data();
-             console.log(`Dashboard: Processing doc ${doc.id}:`, docData); // Debug log
+             console.log(`Dashboard: Processing doc ${doc.id}:`, docData);
 
-            // Basic validation (similar to charts, could be centralized)
+            // Basic validation
              let date = docData.date;
              if (!(date instanceof Timestamp)) {
                 console.warn(`Dashboard: Doc ${doc.id} has non-Timestamp date:`, docData.date);
-                // Attempt conversion or skip
                 try {
-                    // Handle different date representations (e.g., seconds/nanoseconds object)
                     let potentialDate;
                     if (typeof docData.date === 'object' && docData.date !== null && 'seconds' in docData.date && 'nanoseconds' in docData.date) {
                         potentialDate = new Timestamp(docData.date.seconds, docData.date.nanoseconds).toDate();
@@ -84,27 +118,26 @@ export default function Dashboard() {
                        date = Timestamp.fromDate(potentialDate);
                     } else {
                        console.warn(`Dashboard: Doc ${doc.id} has invalid date format after attempt, skipping.`);
-                       return; // Skip this doc
+                       return;
                     }
                 } catch (e) {
                     console.error(`Dashboard: Error converting date for doc ${doc.id}:`, e);
-                    return; // Skip this doc
+                    return;
                 }
-             } else if (!isValid(date.toDate())) { // Validate even if it's already a Timestamp
+             } else if (!isValid(date.toDate())) {
                  console.warn(`Dashboard: Doc ${doc.id} has invalid date within Timestamp, skipping.`);
-                 return; // Skip this doc
+                 return;
              }
               if (!docData.measurementType || (docData.measurementType !== 'vess' && docData.measurementType !== 'composition')) {
                  console.warn(`Dashboard: Doc ${doc.id} missing or invalid measurementType, skipping.`);
-                 return; // Skip this doc
+                 return;
              }
 
-             // Construct the SoilData object safely
              fetchedData.push({
                id: doc.id,
                userId: docData.userId || user.uid,
-               date: date, // Use validated timestamp
-               location: docData.location ?? null, // Ensure null if missing
+               date: date,
+               location: docData.location ?? null,
                locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
                latitude: docData.latitude ?? null,
                longitude: docData.longitude ?? null,
@@ -121,33 +154,28 @@ export default function Dashboard() {
           });
           console.log("Dashboard: Processed data for table/charts:", fetchedData);
           setSoilData(fetchedData);
-          setDataLoading(false); // Stop loading after data is processed
-          setDataError(null); // Clear error on success
+          setDataLoading(false);
+          setDataError(null);
         },
         (error) => {
           console.error("Dashboard: Error fetching soil data:", error);
           setDataError("Failed to load soil data. Please check your connection or try again later.");
-          setDataLoading(false); // Stop loading on error
-          setSoilData([]); // Clear data on error
+          setDataLoading(false);
+          setSoilData([]);
         }
       );
     } else {
-       // If user logs out or db is not ready
-       // Ensure loading stops if user is not available
-       // Check if auth is still loading before setting dataLoading to false
        if (!authLoading) {
            setDataLoading(false);
        }
-       setSoilData([]); // Clear data
+       setSoilData([]);
        setDataError(null);
     }
 
-    // Cleanup function to unsubscribe when component unmounts or user changes
     return () => {
        console.log("Dashboard: Unsubscribing from Firestore listener.");
       unsubscribe();
     };
-    // Include authLoading in dependencies to handle cases where user becomes available but auth is still initializing
   }, [user, isClient, db, authLoading]);
 
 
@@ -163,13 +191,12 @@ export default function Dashboard() {
     );
   }
 
-  // Redirect if not logged in (after initial loading checks)
+  // Redirect if not logged in
   if (!user && !authLoading) {
-     // Redirect immediately instead of showing a message
      if (typeof window !== 'undefined') {
          router.push('/');
      }
-     return ( // Render spinner during the brief moment before redirection happens
+     return (
          <div className="flex justify-center items-center min-h-[calc(100vh-10rem)]">
              <LoadingSpinner size={32} />
              <p className="ml-2">Redirecting to login...</p>
@@ -183,7 +210,8 @@ export default function Dashboard() {
       <h1 className="text-3xl font-bold text-primary">Dashboard</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        {/* Adjusted grid layout for better responsiveness and added more margin-bottom on mobile */}
+        {/* Adjusted grid layout and added more margin-bottom */}
+        {/* Add a hidden Edit Tab Trigger if needed, or handle tab switching programmatically */}
         <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-2 mb-8 md:mb-12">
           <TabsTrigger value="addData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <PlusCircle className="h-4 w-4 sm:h-5 sm:w-5" /> Add Data
@@ -197,6 +225,8 @@ export default function Dashboard() {
           <TabsTrigger value="settings" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <Settings className="h-4 w-4 sm:h-5 sm:w-5" /> Settings
           </TabsTrigger>
+          {/* Hidden trigger for edit state */}
+           <TabsTrigger value="editData" className="hidden"></TabsTrigger>
         </TabsList>
 
         <TabsContent key="addDataTab" value="addData">
@@ -206,11 +236,38 @@ export default function Dashboard() {
               <CardDescription>Fill in the details for your new soil sample using the stepped form below.</CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Pass the callback to the form */}
               <SoilDataForm onFormSubmit={handleFormSubmit} />
             </CardContent>
           </Card>
         </TabsContent>
+
+         {/* Content for Editing an Entry */}
+         <TabsContent key="editDataTab" value="editData">
+          <Card className="bg-card shadow-md border-border">
+            <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                    <CardTitle>Edit Soil Sample</CardTitle>
+                    <CardDescription>Update the details for this soil sample.</CardDescription>
+                 </div>
+                 <Button variant="outline" size="sm" onClick={handleCancelEdit} className="ml-auto">
+                    <XCircle className="mr-1 h-4 w-4" /> Cancel Edit
+                 </Button>
+            </CardHeader>
+            <CardContent>
+              {editingEntry ? (
+                <SoilDataForm
+                  key={editingEntry.id} // Ensure form remounts with new initial data
+                  initialData={editingEntry}
+                  onFormSubmit={handleFormSubmit}
+                />
+              ) : (
+                 // Should not happen if logic is correct, but provide fallback
+                 <p className="text-muted-foreground">No entry selected for editing. Please go back to 'View Data'.</p>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
 
         <TabsContent key="viewDataTab" value="viewData">
            <Card className="bg-card shadow-md border-border">
@@ -232,15 +289,14 @@ export default function Dashboard() {
                     </div>
                  </div>
                ) : (
-                 <SoilDataTable data={soilData} />
+                 <SoilDataTable data={soilData} onEdit={handleEdit} onDelete={handleDelete} />
                )}
             </CardContent>
           </Card>
         </TabsContent>
 
         <TabsContent key="analyzeDataTab" value="analyzeData">
-          <div className="space-y-6"> {/* Add spacing between cards */}
-            {/* Original Data Trends Card */}
+          <div className="space-y-6">
             <Card className="bg-card shadow-md border-border">
               <CardHeader>
                 <CardTitle>Data Trends</CardTitle>
@@ -265,7 +321,6 @@ export default function Dashboard() {
               </CardContent>
             </Card>
 
-            {/* New Pedotransfer Analysis Card */}
             {dataLoading ? (
                <Card className="bg-card shadow-md border-border">
                    <CardHeader><CardTitle>Pedotransfer Analysis</CardTitle></CardHeader>
@@ -287,7 +342,6 @@ export default function Dashboard() {
                     </CardContent>
                 </Card>
               ) : (
-                // Render the chart component, it handles its own empty/error state internally based on processed data
                 <PedotransferAnalysisChart data={soilData} />
             )}
           </div>
@@ -308,5 +362,4 @@ export default function Dashboard() {
     </div>
   );
 }
-
 
