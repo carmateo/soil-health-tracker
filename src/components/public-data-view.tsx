@@ -5,24 +5,22 @@ import { useState, useEffect, useMemo } from 'react';
 // Import collectionGroup directly from firestore
 import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData, QuerySnapshot, collectionGroup } from 'firebase/firestore';
 import { useFirebase } from '@/context/firebase-context';
-import { SoilDataTable } from '@/components/soil-data-table';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, User } from 'lucide-react';
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
-
-// Interface for grouping data by user
-interface UserPublicData {
-  userId: string; // Or potentially user display name if fetched
-  data: Array<SoilData & { id: string }>;
-}
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { SoilDataCharts } from '@/components/soil-data-charts';
+import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart';
 
 export function PublicDataView() {
   const { db } = useFirebase();
   const [publicData, setPublicData] = useState<Array<SoilData & { id: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<'all' | string>('all');
 
   useEffect(() => {
     setLoading(true);
@@ -59,7 +57,12 @@ export function PublicDataView() {
               const docData = doc.data();
               // Extract userId from the document path (users/{userId}/soilData/{docId})
               const parentPathSegments = doc.ref.parent.path.split('/');
-              const userId = parentPathSegments[parentPathSegments.length - 2]; // The segment before 'soilData' should be the userId
+              // Check if parent path is valid before extracting userId
+               if (parentPathSegments.length < 2) {
+                  console.warn(`PublicDataView: Invalid document path for doc ${doc.id}, skipping.`);
+                  return;
+               }
+               const userId = parentPathSegments[parentPathSegments.length - 2]; // The segment before 'soilData' should be the userId
 
               console.log(`PublicDataView: Processing public doc ${doc.id} from user ${userId}:`, docData);
 
@@ -132,18 +135,26 @@ export function PublicDataView() {
     };
   }, [db]); // Dependency array remains [db]
 
-
-  // Group data by user ID (optional, depending on desired display)
-  const groupedData = useMemo(() => {
-    const groups: Record<string, UserPublicData> = {};
-    publicData.forEach(entry => {
-      if (!groups[entry.userId]) {
-        groups[entry.userId] = { userId: entry.userId, data: [] };
-      }
-      groups[entry.userId].data.push(entry);
-    });
-    return Object.values(groups);
+  // Get unique user IDs for the selector
+  const userIds = useMemo(() => {
+    const ids = new Set<string>();
+    publicData.forEach(entry => ids.add(entry.userId));
+    return Array.from(ids);
   }, [publicData]);
+
+  // Filter data based on selected user
+  const filteredChartData = useMemo(() => {
+    if (selectedUserId === 'all') {
+      return publicData;
+    }
+    return publicData.filter(entry => entry.userId === selectedUserId);
+  }, [publicData, selectedUserId]);
+
+  const selectedUserDisplay = useMemo(() => {
+    if (selectedUserId === 'all') return 'All Users';
+    // Basic obfuscation for display
+    return `User ${selectedUserId.substring(0, 6)}...`;
+  }, [selectedUserId]);
 
 
   if (loading) {
@@ -166,24 +177,71 @@ export function PublicDataView() {
 
   return (
     <div className="space-y-6">
-      {/* Option 1: Show a single table with all public data */}
-      <SoilDataTable data={publicData} onEdit={() => {}} onDelete={async () => {}} showActions={false} />
+      {/* User Selector */}
+      <div className="flex flex-col sm:flex-row gap-4 items-center">
+        <Select value={selectedUserId} onValueChange={(value) => setSelectedUserId(value)}>
+           <SelectTrigger className="w-full sm:w-[250px]">
+            <div className="flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <SelectValue placeholder="Select User" />
+            </div>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">
+               <div className="flex items-center gap-2">
+                 <span>All Users</span>
+               </div>
+            </SelectItem>
+            {userIds.map(id => (
+              <SelectItem key={id} value={id}>
+                 <div className="flex items-center gap-2">
+                    {/* Obfuscate ID in dropdown */}
+                    <span>User {id.substring(0, 6)}...</span>
+                 </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {userIds.length === 0 && !loading && (
+           <p className="text-sm text-muted-foreground">No public users found.</p>
+        )}
+      </div>
 
-      {/* Option 2: Iterate through grouped data and show a table per user (might be too much) */}
-      {/* {groupedData.map(group => (
-        <Card key={group.userId}>
-          <CardHeader>
-            <CardTitle>Data from User {group.userId.substring(0, 6)}...</CardTitle> {/* Obfuscate user ID */}
-          {/* </CardHeader>
-          <CardContent>
-            <SoilDataTable data={group.data} onEdit={() => {}} onDelete={async () => {}} showActions={false} />
-          </CardContent>
-        </Card>
-      ))} */}
+      {/* Charts Section */}
+      {publicData.length > 0 ? (
+        <div className="space-y-6">
+          {/* Soil Data Trends Chart */}
+           <Card className="bg-card shadow-md border-border">
+             <CardHeader>
+               <CardTitle>{selectedUserDisplay}: Data Trends</CardTitle>
+               <CardDescription>Visualize soil health trends over time.</CardDescription>
+             </CardHeader>
+             <CardContent>
+               {filteredChartData.length > 0 ? (
+                 <SoilDataCharts data={filteredChartData} />
+               ) : (
+                 <p className="text-center text-muted-foreground py-10">No data available for {selectedUserDisplay} to display trend charts.</p>
+               )}
+             </CardContent>
+           </Card>
 
-       {publicData.length === 0 && !loading && (
-           <p className="text-center text-muted-foreground py-10">No public soil data found.</p>
-       )}
+           {/* Pedotransfer Analysis Chart */}
+            <PedotransferAnalysisChart data={filteredChartData} />
+            {/* The PedotransferAnalysisChart already includes its own Card structure */}
+
+            {/* Display message if a specific user is selected but has no composition data */}
+            {selectedUserId !== 'all' && filteredChartData.length > 0 && !filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
+                 <p className="text-sm text-center text-muted-foreground mt-2">
+                    No soil composition data found for {selectedUserDisplay} to perform Pedotransfer Analysis.
+                 </p>
+            )}
+
+        </div>
+      ) : (
+         <p className="text-center text-muted-foreground py-10">No public soil data found overall.</p>
+      )}
     </div>
   );
 }
+
+    
