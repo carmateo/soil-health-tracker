@@ -1,0 +1,313 @@
+[33mcommit 34c2b55197e5d74fb1f66633318d7a8014948cd8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Sat May 3 11:15:37 2025 +0000
+
+    PERFECTO. Ahora mueve el logo 1 centimetro hacia la derecha, y tambien mueve el texto que lo acompaña y que dice "Soil Health Data Collection"
+
+[33mcommit 309da89b596ee74a8324d7fc1110f9855e0e30df[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Sat May 3 11:14:28 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > ./src/components/site-header.tsx:60:4
+    > Parsing ecmascript source code failed
+    >   58 | }
+    >   59 |
+    > > 60 | ```
+    >      |    ^
+    >
+    > Unexpected eof
+    >
+    >
+
+[33mcommit 57d0643725ee5014c11c7b59a53bfd11f5741665[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Sat May 3 10:23:25 2025 +0000
+
+    Mejor que diga "Soil Health Data Collection", y aumentale un poco el tamaño de la letra
+
+[33mcommit 3e7364673032ceec2277568263a9a934cedc8632[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Sat May 3 10:20:36 2025 +0000
+
+    que en el primer rectangulo que te marque diga "SHDC" y en el segundo (el de mas abajo) que diga simplemente Dashboard
+
+[33mcommit b299cbe7b615d0ddff31286f7cae1948af5827cb[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Sat May 3 10:18:31 2025 +0000
+
+    Cada vez que diga "SoilHealth" O "SoilHealth Tracker" modificalo por "Soil Health Data Collection" o su acronimo "SHDC".
+
+[33mcommit 40d95bcc37b2e09d10844764c8010cecb71ed90d[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 17:48:37 2025 +0000
+
+    Queremos agregar en Analyze Data un cálculo de pedotransfer functions para cada muestra basada en Clay% y Sand%.
+    
+    Fórmulas:
+    
+    WP = 0.0673 + 0.00064 * Clay + 0.00196 * Sand
+    
+    FC = 0.2576 + 0.00203 * Clay + 0.00125 * Sand
+    
+    AW = FC - WP
+    
+    BD = 1.6 - 0.004 * Clay
+    
+    Crear una función calculateSoilProperties(clay, sand) que devuelva esos 4 valores.
+    
+    Mostrar en Analyze Data un gráfico de barras de Available Water (%) usando recharts.
+    
+    Crear un componente AnalyzeDataChart que reciba soilData y lo procese.
+    
+    Dejarlo dentro de una tarjeta nueva Pedotransfer Analysis.
+
+[33mcommit 2811bd74d23dabf5b7b594af2a032c2595823ac6[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 17:27:28 2025 +0000
+
+    hace que para el celular las opciones que te dije de add data, view data, analyze data y settings tengan un espacio mayor antes de que aparezca "add new soil sample"
+
+[33mcommit e0dba8abbaf4c01011fdeb02657d2e4f6ccad31a[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 17:24:49 2025 +0000
+
+    Funciona todo perfecto pero el responsive no esta tan bien para el celular (estoy chequeando en Redmi Note 8 Pro). La parte de Add Data, View Data, Analyze Data y Settings estan overlappeando con otra parte! Puedes arreglarlo? No modifiques nada mas, solo eso del responsive para el celular!
+
+[33mcommit 94c77ef88fa60194842c5a110abb4662c52b9533[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 17:16:42 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > ./src/components/soil-data-form.tsx:319:10
+    > Parsing ecmascript source code failed
+    >   317 |          await updateDoc(docRef, finalData);
+    >   318 |          toast({ title: 'Data Updated', description: 'Soil sample data successfully updated.' });
+    > > 319 |          else {
+    >       |          ^^^^
+    >   320 |           // Add new document
+    >   321 |           const docRef = await addDoc(collection(db, `users/${user.uid}/soilData`), finalData);
+    >   322 |           console.log("Document written with ID: ", docRef.id);
+    >
+    > Expression expected
+    >
+    >
+
+[33mcommit e8184974776a1aaee9657da7d0d8a41634eb758b[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 17:01:24 2025 +0000
+
+    Quiero que esta data provenga de la data almacenada en soil-data-table, que se generó en la tab de "Add Data" en el paso previo
+
+[33mcommit 7dba8d59c64ce7642168d58220145cd60bbb0214[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 16:42:19 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > Runtime Error: Error: ./src/components/soil-data-table.tsx:615:1
+    > Parsing ecmascript source code failed
+    >   613 |   );
+    >   614 | }
+    > > 615 |
+    >       | ^
+    >
+    > Unexpected eof
+    >
+    > . Error source: Call Stack
+    > 7
+    >
+    > Show 5 ignore-listed frame(s)
+    > <unknown>
+    > error: ./src/components/soil-data-table.tsx (615:1)
+    > <unknown> (Error:
+    > ./src/components/soil-data-table.tsx (615:1)
+
+[33mcommit 98ba4ff04898a882e07709013763adff38bf2615[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 16:35:55 2025 +0000
+
+    No funciona! Necesito que en "View Data" se visualice la data!
+
+[33mcommit 8edb561ef1f87578f495427c0df840bbb42a32fb[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 16:33:27 2025 +0000
+
+    En esta opcion de View Data se tiene que visualizar el data entry que agregue antes en la seccion "Add Data"
+
+[33mcommit 9db7bb8b05036d4c163a8d8450b67087e1db1ef6[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 16:26:14 2025 +0000
+
+    Add data funciono perfecto. Pero ahora quiero que la data se visualice, tanto en View Data como en Analyze Data.
+
+[33mcommit d9bc802e4d6474165bfc2a111831ddb7b2967dd1[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 16:14:52 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > Console Error: Invalid prop `id` supplied to `React.Fragment`. React.Fragment can only have `key` and `children` props.. Error source: src/components/soil-data-form.tsx (494:26) @ Object.render
+    >
+    >   492 |                     <FormLabel>VESS Score (1-5)</FormLabel>
+    >   493 |                      <FormControl>
+    > > 494 |                          <>
+    >       |                          ^
+    >   495 |                           <Slider
+    >   496 |                               defaultValue={[field.value ?? 3]} // Use local state for visual sync
+    >   497 |                               min={1}
+    >
+    > Call Stack
+    > 26
+    >
+    > Show 22 ignore-listed frame(s)
+    > Object.render
+    > src/components/soil-data-form.tsx (494:26)
+    > FormField
+    > src/components/ui/form.tsx (39:7)
+    > SoilDataForm
+    > src/components/soil-data-form.tsx (487:14)
+    > Dashboard
+    > src/app/dashboard/page.tsx (83:16)
+
+[33mcommit 58753cd06c0a2e70d2aa411df7ee5954ab07c96d[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 16:06:44 2025 +0000
+
+    Perfecto, que la data que agregue ahora se visualice en View data, porque no aparece ahi
+
+[33mcommit 21f0877a0738a693741e8d2f0e989a921f25546e[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 15:59:31 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > Unhandled Runtime Error: Error: Cannot read properties of undefined (reading 'measurementType'). Error source: src/components/soil-data-form.tsx (69:48) @ getFormSchema
+    >
+    >   67 |
+    >   68 | // Combine schemas using discriminated union, dentro de una función
+    > > 69 | const getFormSchema = () => z.discriminatedUnion('measurementType', [
+    >      |                                                ^
+    >   70 |   vessFormSchema,
+    >   71 |   compositionFormSchema,
+    >   72 | ]);
+    >
+    > Call Stack
+    > 5
+    >
+    > Show 2 ignore-listed frame(s)
+    > getFormSchema
+    > src/components/soil-data-form.tsx (69:48)
+    > SoilDataForm
+    > src/components/soil-data-form.tsx (152:27)
+    > Dashboard
+    > src/app/dashboard/page.tsx (87:15)
+
+[33mcommit 6b988fc2ca8cada168ef909f0b8b57a78db94cb1[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 15:28:34 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > Unhandled Runtime Error: Error: Cannot read properties of undefined (reading 'measurementType'). Error source: src/components/soil-data-form.tsx (69:39) @ [project]/src/components/soil-data-form.tsx [app-client] (ecmascript)
+    >
+    >   67 |
+    >   68 | // Combine schemas using discriminated union
+    > > 69 | const formSchema = z.discriminatedUnion('measurementType', [
+    >      |                                       ^
+    >   70 |   vessFormSchema,
+    >   71 |   compositionFormSchema,
+    >   72 | ]);
+    >
+    > Call Stack
+    > 19
+    >
+    > Show 17 ignore-listed frame(s)
+    > [project]/src/components/soil-data-form.tsx [app-client] (ecmascript)
+    > src/components/soil-data-form.tsx (69:39)
+    > [project]/src/app/dashboard/page.tsx [app-client] (ecmascript)
+    > src/app/dashboard/page.tsx (6:1)
+
+[33mcommit b45777e345b9bbac427dbcb6429dd3f2ba520cce[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 15:26:39 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > Unhandled Runtime Error: Error: merging._def.shape is not a function. Error source: src/components/soil-data-form.tsx (66:39) @ [project]/src/components/soil-data-form.tsx [app-client] (ecmascript)
+    >
+    >   64 |
+    >   65 | // Combine schemas using discriminated union based on measurementType
+    > > 66 | const formSchema = z.discriminatedUnion('measurementType', [
+    >      |                                       ^
+    >   67 |     baseSchema.merge(vessSchema),
+    >   68 |     baseSchema.merge(compositionSchema),
+    >   69 | ]);
+    >
+    > Call Stack
+    > 21
+    >
+    > Show 19 ignore-listed frame(s)
+    > [project]/src/components/soil-data-form.tsx [app-client] (ecmascript)
+    > src/components/soil-data-form.tsx (66:39)
+    > [project]/src/app/dashboard/page.tsx [app-client] (ecmascript)
+    > src/app/dashboard/page.tsx (6:1)
+
+[33mcommit e888c73864910720fd98ffaafcd6f1a67d34099f[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 15:22:24 2025 +0000
+
+    probemos de nuevo
+
+[33mcommit 94682edb2d75628bce8479ca885bb5d36ccd849c[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 15:01:37 2025 +0000
+
+    I see this error with the app, reported by NextJS, please fix it. The error is reported as HTML but presented visually to the user).
+    
+    A > before the line number in the error source usually indicates the line of interest:
+    
+    > Console Error: FirebaseError: Firebase: Error (auth/api-key-not-valid.-please-pass-a-valid-api-key.).. Error source: src/components/register-form.tsx (59:7) @ async onSubmit
+    >
+    >   57 |     setError(null);
+    >   58 |     try {
+    > > 59 |       await createUserWithEmailAndPassword(auth, data.email, data.password);
+    >      |       ^
+    >   60 |       toast({
+    >   61 |         title: 'Registration Successful',
+    >   62 |         description: 'You can now log in.',
+    >
+    > Call Stack
+    > 7
+    >
+    > Show 6 ignore-listed frame(s)
+    > async onSubmit
+    > src/components/register-form.tsx (59:7)
+
+[33mcommit c28b1b0cd78a278e890e2e32eb86f2b281976c45[m
+Author: Mateo Carelli <carellimateo@gmail.com>
+Date:   Mon Apr 28 15:00:55 2025 +0000
+
+    Update app
+
+[33mcommit ef45861179fd739ea504dc47b8e09f9ae172ea2c[m
+Author: Your Name <you@example.com>
+Date:   Tue Apr 22 18:49:22 2025 +0000
+
+    initial scaffold
