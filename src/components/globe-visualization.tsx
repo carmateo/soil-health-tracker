@@ -52,10 +52,12 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
     loader.load(GLOBE_IMAGE_URL, (loadedTexture) => {
       setTexture(loadedTexture);
     });
+  }, []); // Run only once on mount
 
 
-    // Set initial camera position and configure controls
-    if (globeEl.current) {
+  // Set initial camera position and configure controls AFTER texture is loaded and globe ref is available
+   useEffect(() => {
+    if (isClient && globeEl.current && texture) {
       globeEl.current.pointOfView({ lat: 20, lng: 0, altitude: INITIAL_ALTITUDE }, 1000); // Use the fixed altitude
        // Configure controls
        const controls = globeEl.current.controls();
@@ -64,11 +66,14 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
          controls.autoRotate = true; // Enable auto-rotation
          controls.autoRotateSpeed = 0.3; // Adjust rotation speed
          // Remove min/max distance as zoom is disabled
-         // controls.minDistance = 100;
-         // controls.maxDistance = 600;
+         // controls.minDistance = 100; // Example minimum distance (zoom in limit)
+         // controls.maxDistance = 600; // Example maximum distance (zoom out limit)
+         // Ensure controls update
+         controls.update();
        }
     }
-  }, []);
+   }, [isClient, texture]); // Rerun when client status or texture changes
+
 
   useEffect(() => {
     if (!isClient || !Array.isArray(data)) return;
