@@ -7,7 +7,7 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData,
 import { useFirebase } from '@/context/firebase-context';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, User, MapPin } from 'lucide-react'; // Added MapPin icon
+import { AlertTriangle, User, MapPin, AreaChart, BarChart, Globe } from 'lucide-react'; // Added Globe icon
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,6 +15,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { SoilDataCharts } from '@/components/soil-data-charts';
 import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip components
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Import RadioGroup for view toggle
+import { Label } from '@/components/ui/label'; // Import Label for RadioGroup
+import { GlobeVisualization } from '@/components/globe-visualization'; // Import the new Globe component
 
 export function PublicDataView() {
   const { db } = useFirebase();
@@ -23,6 +26,7 @@ export function PublicDataView() {
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null); // Initialize to null, force selection
   const [selectedLocationKey, setSelectedLocationKey] = useState<string | null>(null); // Key for the selected location
+  const [viewMode, setViewMode] = useState<'charts' | 'globe'>('charts'); // State to toggle between chart view and globe view
 
 
   useEffect(() => {
@@ -61,9 +65,31 @@ export function PublicDataView() {
 
               let date = docData.date;
               if (!(date instanceof Timestamp) || !isValid(date.toDate())) {
-                 console.warn(`PublicDataView: Doc ${doc.id} has invalid date, skipping.`);
-                 return;
+                 // Try converting potential Date objects or strings if needed, otherwise skip
+                 try {
+                   let potentialDate;
+                   if (typeof docData.date === 'object' && docData.date !== null && 'seconds' in docData.date && 'nanoseconds' in docData.date) {
+                     potentialDate = new Timestamp(docData.date.seconds, docData.date.nanoseconds).toDate();
+                   } else if (typeof docData.date === 'string' || typeof docData.date === 'number') {
+                     potentialDate = new Date(docData.date);
+                   } else if (docData.date instanceof Date) {
+                     potentialDate = docData.date;
+                   } else {
+                     throw new Error('Unrecognized date format');
+                   }
+
+                   if (isValid(potentialDate)) {
+                     date = Timestamp.fromDate(potentialDate);
+                   } else {
+                     console.warn(`PublicDataView: Doc ${doc.id} has invalid date format after attempt, skipping.`);
+                     return;
+                   }
+                 } catch (e) {
+                   console.error(`PublicDataView: Error converting date for doc ${doc.id}:`, e);
+                   return;
+                 }
               }
+
               if (!docData.measurementType || (docData.measurementType !== 'vess' && docData.measurementType !== 'composition')) {
                   console.warn(`PublicDataView: Doc ${doc.id} missing or invalid measurementType, skipping.`);
                   return;
@@ -76,7 +102,7 @@ export function PublicDataView() {
               fetchedData.push({
                 id: doc.id,
                 userId: userId,
-                date: date,
+                date: date, // Store as Firestore Timestamp
                 location: docData.location ?? null,
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
                 latitude: docData.latitude ?? null,
@@ -98,8 +124,8 @@ export function PublicDataView() {
             console.log("PublicDataView: Processed public data:", fetchedData);
             setPublicData(fetchedData);
 
-            // Automatically select the first user if none is selected and data exists
-            if (!selectedUserId && fetchedData.length > 0) {
+            // Automatically select the first user if none is selected and data exists (only for 'charts' view)
+            if (viewMode === 'charts' && !selectedUserId && fetchedData.length > 0) {
                 const firstUserId = fetchedData[0].userId;
                 setSelectedUserId(firstUserId);
                 // Also select the first location for that user
@@ -157,7 +183,10 @@ export function PublicDataView() {
       const key = `gps_${lat}_${lon}`;
       const detailsArray = [entry.city, entry.region, entry.country].filter(Boolean);
       const detailsString = detailsArray.length > 0 ? ` (${detailsArray.join(', ')})` : '';
-      const name = `GPS: ${lat}, ${lon}${detailsString.length > 20 ? detailsString.substring(0, 17) + '...' : detailsString}`;
+      // Truncate name if too long
+      const baseName = `GPS: ${lat}, ${lon}`;
+      const truncatedDetails = detailsString.length > 25 ? detailsString.substring(0, 22) + '...' : detailsString;
+      const name = baseName + truncatedDetails;
       const fullDetails = `Lat: ${entry.latitude.toFixed(5)}, Lon: ${entry.longitude.toFixed(5)}${detailsArray.length > 0 ? ` (${detailsArray.join(', ')})` : ''}`;
       return { key, name, fullDetails };
     }
@@ -184,16 +213,23 @@ export function PublicDataView() {
   }
 
 
-  // Filter data based on selected user *and* selected location
+  // Filter data based on selected user *and* selected location (for charts view)
   const filteredChartData = useMemo(() => {
-     if (!selectedUserId || !selectedLocationKey) {
-      return []; // Don't show data if user or location isn't selected
+     if (viewMode !== 'charts' || !selectedUserId || !selectedLocationKey) {
+      return []; // Don't show chart data if not in charts view or user/location isn't selected
     }
     return publicData.filter(entry => {
         const entryLocationKey = getLocationKeyAndName(entry).key;
         return entry.userId === selectedUserId && entryLocationKey === selectedLocationKey;
     });
-  }, [publicData, selectedUserId, selectedLocationKey]);
+  }, [publicData, selectedUserId, selectedLocationKey, viewMode]);
+
+  // Data for the globe (all public GPS entries)
+  const globeData = useMemo(() => {
+    if (viewMode !== 'globe') return [];
+    return publicData.filter(entry => entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null);
+  }, [publicData, viewMode]);
+
 
   const selectedUserDisplay = useMemo(() => {
     if (!selectedUserId) return 'No User Selected';
@@ -221,6 +257,16 @@ export function PublicDataView() {
       }
   };
 
+  // Handle view mode change
+  const handleViewModeChange = (mode: 'charts' | 'globe') => {
+      setViewMode(mode);
+       // Reset user/location selection if switching to globe? Or keep it? Let's keep it for now.
+      // If switching to charts and no user is selected, select the first one if available
+      if (mode === 'charts' && !selectedUserId && userIds.length > 0) {
+          handleUserChange(userIds[0]);
+      }
+  };
+
 
   if (loading) {
     return (
@@ -243,109 +289,144 @@ export function PublicDataView() {
   return (
      <TooltipProvider>
     <div className="space-y-6">
-      {/* User and Location Selectors */}
-      <div className="flex flex-col sm:flex-row gap-4 items-center">
-        {/* User Selector */}
-         <Select value={selectedUserId ?? ""} onValueChange={handleUserChange}>
-           <SelectTrigger className="w-full sm:w-[200px]">
-            <div className="flex items-center gap-2">
-              <User className="h-4 w-4 text-muted-foreground" />
-              <SelectValue placeholder="Select User" />
-            </div>
-          </SelectTrigger>
-          <SelectContent>
-            {userIds.length === 0 && !loading ? (
-                <SelectItem value="no-users" disabled>No public users found</SelectItem>
-             ) : (
-                userIds.map(id => (
-                <SelectItem key={id} value={id}>
-                    <div className="flex items-center gap-2">
-                    <span>User {id.substring(0, 6)}...</span>
-                    </div>
-                </SelectItem>
-                ))
-            )}
-          </SelectContent>
-        </Select>
 
-        {/* Location Selector - Only enabled if a user is selected */}
-         <Select
-            value={selectedLocationKey ?? ""}
-            onValueChange={(key) => setSelectedLocationKey(key)}
-            disabled={!selectedUserId || uniqueLocations.length === 0}
-            >
-           <SelectTrigger className="w-full sm:w-[300px]">
-             <div className="flex items-center gap-2">
-               <MapPin className="h-4 w-4 text-muted-foreground" />
-               <SelectValue placeholder={selectedUserId ? "Select Location" : "Select User First"} />
-             </div>
-           </SelectTrigger>
-           <SelectContent>
-             {uniqueLocations.length === 0 && selectedUserId ? (
-                 <SelectItem value="no-locations" disabled>No locations for this user</SelectItem>
-             ) : (
-                uniqueLocations.map(loc => (
-                    <SelectItem key={loc.key} value={loc.key}>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <div className="flex items-center gap-2 truncate">
-                                    <span>{loc.name}</span>
-                                </div>
-                             </TooltipTrigger>
-                             <TooltipContent side="right" align="start">
-                                <p>{loc.fullDetails}</p>
-                             </TooltipContent>
-                         </Tooltip>
-                     </SelectItem>
-                ))
-             )}
-           </SelectContent>
-         </Select>
+       {/* View Mode Toggle */}
+       <div className="flex justify-center mb-6">
+         <RadioGroup value={viewMode} onValueChange={handleViewModeChange} className="flex space-x-4 border border-border p-1 rounded-md bg-muted">
+           <div className="flex items-center space-x-2">
+             <RadioGroupItem value="charts" id="view-charts" />
+             <Label htmlFor="view-charts" className="flex items-center gap-1 cursor-pointer"><AreaChart className="h-4 w-4" /> Charts by User/Location</Label>
+           </div>
+           <div className="flex items-center space-x-2">
+             <RadioGroupItem value="globe" id="view-globe" />
+             <Label htmlFor="view-globe" className="flex items-center gap-1 cursor-pointer"><Globe className="h-4 w-4" /> Global Map View</Label>
+           </div>
+         </RadioGroup>
+       </div>
 
-      </div>
-
-      {/* Charts Section - Only show if both user and location are selected */}
-      {selectedUserId && selectedLocationKey ? (
-         <>
-         {filteredChartData.length > 0 ? (
-            <div className="space-y-6">
-                {/* Soil Data Trends Chart */}
-                <Card className="bg-card shadow-md border-border">
-                    <CardHeader>
-                    <CardTitle>{selectedUserDisplay} - {selectedLocationDisplay}: Data Trends</CardTitle>
-                    <CardDescription>Visualize soil health trends over time for the selected location.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <SoilDataCharts data={filteredChartData} />
-                    </CardContent>
-                </Card>
-
-                {/* Pedotransfer Analysis Chart */}
-                <PedotransferAnalysisChart data={filteredChartData} />
-
-                {/* Message if no composition data for the selection */}
-                {!filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
-                    <p className="text-sm text-center text-muted-foreground mt-2">
-                        No soil composition data found for {selectedUserDisplay} at {selectedLocationDisplay} to perform Pedotransfer Analysis.
-                    </p>
+      {/* Conditional Rendering based on viewMode */}
+      {viewMode === 'charts' && (
+        <>
+          {/* User and Location Selectors - Only show in charts mode */}
+          <div className="flex flex-col sm:flex-row gap-4 items-center">
+            {/* User Selector */}
+            <Select value={selectedUserId ?? ""} onValueChange={handleUserChange}>
+              <SelectTrigger className="w-full sm:w-[200px]">
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-muted-foreground" />
+                  <SelectValue placeholder="Select User" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                {userIds.length === 0 && !loading ? (
+                    <SelectItem value="no-users" disabled>No public users found</SelectItem>
+                ) : (
+                    userIds.map(id => (
+                    <SelectItem key={id} value={id}>
+                        <div className="flex items-center gap-2">
+                        <span>User {id.substring(0, 6)}...</span>
+                        </div>
+                    </SelectItem>
+                    ))
                 )}
+              </SelectContent>
+            </Select>
 
-            </div>
-         ) : (
-            // This case might occur if the selected user/location combo has no data (though filtering should handle this)
-            // Or if data is still loading/filtering
-            <p className="text-center text-muted-foreground py-10">No data available for {selectedUserDisplay} at {selectedLocationDisplay}.</p>
-         )}
-         </>
-      ) : (
-         // Prompt to select user and location
-         <p className="text-center text-muted-foreground py-10">
-            {publicData.length === 0 ? 'No public soil data found overall.' : 'Please select a user and location to view their data.'}
-         </p>
+            {/* Location Selector - Only enabled if a user is selected */}
+            <Select
+                value={selectedLocationKey ?? ""}
+                onValueChange={(key) => setSelectedLocationKey(key)}
+                disabled={!selectedUserId || uniqueLocations.length === 0}
+                >
+              <SelectTrigger className="w-full sm:w-[300px]">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground" />
+                  <SelectValue placeholder={selectedUserId ? "Select Location" : "Select User First"} />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                {uniqueLocations.length === 0 && selectedUserId ? (
+                    <SelectItem value="no-locations" disabled>No locations for this user</SelectItem>
+                ) : (
+                    uniqueLocations.map(loc => (
+                        <SelectItem key={loc.key} value={loc.key}>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <div className="flex items-center gap-2 truncate max-w-[280px]">
+                                        <span>{loc.name}</span>
+                                    </div>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" align="start">
+                                    <p>{loc.fullDetails}</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </SelectItem>
+                    ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Charts Section - Only show if both user and location are selected */}
+          {selectedUserId && selectedLocationKey ? (
+            <>
+            {filteredChartData.length > 0 ? (
+                <div className="space-y-6">
+                    {/* Soil Data Trends Chart */}
+                    <Card className="bg-card shadow-md border-border">
+                        <CardHeader>
+                        <CardTitle>{selectedUserDisplay} - {selectedLocationDisplay}: Data Trends</CardTitle>
+                        <CardDescription>Visualize soil health trends over time for the selected location.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <SoilDataCharts data={filteredChartData} />
+                        </CardContent>
+                    </Card>
+
+                    {/* Pedotransfer Analysis Chart */}
+                    <PedotransferAnalysisChart data={filteredChartData} />
+
+                    {/* Message if no composition data for the selection */}
+                    {!filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
+                        <p className="text-sm text-center text-muted-foreground mt-2">
+                            No soil composition data found for {selectedUserDisplay} at {selectedLocationDisplay} to perform Pedotransfer Analysis.
+                        </p>
+                    )}
+
+                </div>
+            ) : (
+                <p className="text-center text-muted-foreground py-10">No data available for {selectedUserDisplay} at {selectedLocationDisplay}.</p>
+            )}
+            </>
+          ) : (
+            // Prompt to select user and location
+            <p className="text-center text-muted-foreground py-10">
+                {publicData.length === 0 ? 'No public soil data found overall.' : 'Please select a user and location to view their data.'}
+            </p>
+          )}
+        </>
       )}
+
+      {/* Globe View */}
+      {viewMode === 'globe' && (
+          <Card className="bg-card shadow-md border-border">
+             <CardHeader>
+                 <CardTitle>Global Soil Data Points</CardTitle>
+                 <CardDescription>Interactive map showing locations of public soil data entries.</CardDescription>
+             </CardHeader>
+             <CardContent>
+                 {globeData.length > 0 ? (
+                     <GlobeVisualization data={globeData} />
+                 ) : (
+                    <p className="text-center text-muted-foreground py-10">
+                        No public data with GPS coordinates found to display on the globe.
+                     </p>
+                 )}
+             </CardContent>
+         </Card>
+      )}
+
     </div>
      </TooltipProvider>
   );
 }
-
-    
