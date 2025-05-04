@@ -7,17 +7,18 @@ import { useEffect, useState, useCallback } from 'react';
 import { SoilDataForm } from '@/components/soil-data-form';
 import { SoilDataTable } from '@/components/soil-data-table';
 import { UserSettings } from '@/components/user-settings';
+import { PublicDataView } from '@/components/public-data-view'; // Import the new component
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { PlusCircle, Table, Settings, BarChart3, AlertTriangle, Edit, XCircle } from 'lucide-react';
+import { PlusCircle, Table, Settings, BarChart3, AlertTriangle, Edit, XCircle, Users } from 'lucide-react'; // Added Users icon
 import { SoilDataCharts } from '@/components/soil-data-charts';
 import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart';
 import { collection, onSnapshot, query, orderBy, Timestamp, deleteDoc, doc } from "firebase/firestore";
 import { useFirebase } from '@/context/firebase-context';
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
-import { Button } from '@/components/ui/button'; // Import Button
+import { Button } from '@/components/ui/button';
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
@@ -28,54 +29,47 @@ export default function Dashboard() {
   const [soilData, setSoilData] = useState<Array<SoilData & { id: string }>>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
-  const [editingEntry, setEditingEntry] = useState<(SoilData & { id: string }) | null>(null); // State for editing
+  const [editingEntry, setEditingEntry] = useState<(SoilData & { id: string }) | null>(null);
 
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Callback for form submission success (add or edit)
   const handleFormSubmit = useCallback(() => {
      console.log("Dashboard: Form submitted, switching tab to view data.");
-     setEditingEntry(null); // Clear editing state
+     setEditingEntry(null);
      setActiveTab('viewData');
-     // Data update will be handled by the listener
   }, []);
 
-  // Callback to initiate editing
   const handleEdit = useCallback((entry: SoilData & { id: string }) => {
     console.log("Dashboard: Starting edit for entry:", entry.id);
     setEditingEntry(entry);
-    setActiveTab('editData'); // Switch to a dedicated (or reused) edit tab/view
+    setActiveTab('editData');
   }, []);
 
-   // Callback to cancel editing
    const handleCancelEdit = useCallback(() => {
        console.log("Dashboard: Cancelling edit.");
        setEditingEntry(null);
-       setActiveTab('viewData'); // Go back to viewing data
+       setActiveTab('viewData');
    }, []);
 
-  // Callback to handle deletion
   const handleDelete = useCallback(async (entryId: string) => {
     if (!user || !db) {
       console.error("Delete error: User or DB not available.");
-      throw new Error("Authentication or database connection issue."); // Throw error to be caught by table component
+      throw new Error("Authentication or database connection issue.");
     }
     console.log("Dashboard: Deleting entry:", entryId);
     const docRef = doc(db, `users/${user.uid}/soilData`, entryId);
     try {
       await deleteDoc(docRef);
       console.log("Dashboard: Entry deleted successfully:", entryId);
-      // Data removal from state will be handled by the listener
     } catch (error) {
       console.error("Dashboard: Error deleting entry:", error);
-      throw error; // Re-throw error to be caught and handled in the table component's UI
+      throw error;
     }
   }, [user, db]);
 
 
-  // Real-time data fetching effect
   useEffect(() => {
     let unsubscribe = () => {};
 
@@ -99,7 +93,6 @@ export default function Dashboard() {
              const docData = doc.data();
              console.log(`Dashboard: Processing doc ${doc.id}:`, docData);
 
-            // Basic validation
              let date = docData.date;
              if (!(date instanceof Timestamp)) {
                 console.warn(`Dashboard: Doc ${doc.id} has non-Timestamp date:`, docData.date);
@@ -132,7 +125,6 @@ export default function Dashboard() {
                  return;
              }
 
-             // Convert Firestore potentially null values to explicit null for consistency
              fetchedData.push({
                id: doc.id,
                userId: docData.userId || user.uid,
@@ -141,9 +133,9 @@ export default function Dashboard() {
                locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
                latitude: docData.latitude ?? null,
                longitude: docData.longitude ?? null,
-               country: docData.country ?? null, // Added
-               region: docData.region ?? null, // Added
-               city: docData.city ?? null, // Added
+               country: docData.country ?? null,
+               region: docData.region ?? null,
+               city: docData.city ?? null,
                measurementType: docData.measurementType,
                vessScore: docData.measurementType === 'vess' ? (docData.vessScore ?? null) : null,
                sand: docData.measurementType === 'composition' ? (docData.sand ?? null) : null,
@@ -182,7 +174,6 @@ export default function Dashboard() {
   }, [user, isClient, db, authLoading]);
 
 
-  // Combined loading state for initial page load
   const isLoading = authLoading || !isClient;
 
   if (isLoading) {
@@ -194,7 +185,6 @@ export default function Dashboard() {
     );
   }
 
-  // Redirect if not logged in
   if (!user && !authLoading) {
      if (typeof window !== 'undefined') {
          router.push('/');
@@ -213,18 +203,21 @@ export default function Dashboard() {
       <h1 className="text-3xl font-bold text-primary">Dashboard</h1>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        {/* Adjusted grid layout and added more margin-bottom */}
-        {/* Add a hidden Edit Tab Trigger if needed, or handle tab switching programmatically */}
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 gap-2 mb-8 md:mb-12">
+        {/* Adjusted grid to 5 columns for the new tab */}
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 gap-2 mb-8 md:mb-12">
           <TabsTrigger value="addData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <PlusCircle className="h-4 w-4 sm:h-5 sm:w-5" /> Add Data
           </TabsTrigger>
           <TabsTrigger value="viewData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <Table className="h-4 w-4 sm:h-5 sm:w-5" /> View Data
           </TabsTrigger>
-          <TabsTrigger value="analyzeData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
+           <TabsTrigger value="analyzeData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5" /> Analyze Data
           </TabsTrigger>
+           {/* New Public Data Tab */}
+          <TabsTrigger value="publicData" className="flex items-center justify-center gap-2 text-sm sm:text-base">
+             <Users className="h-4 w-4 sm:h-5 sm:w-5" /> Public Data
+           </TabsTrigger>
           <TabsTrigger value="settings" className="flex items-center justify-center gap-2 text-sm sm:text-base">
             <Settings className="h-4 w-4 sm:h-5 sm:w-5" /> Settings
           </TabsTrigger>
@@ -259,12 +252,11 @@ export default function Dashboard() {
             <CardContent>
               {editingEntry ? (
                 <SoilDataForm
-                  key={editingEntry.id} // Ensure form remounts with new initial data
+                  key={editingEntry.id}
                   initialData={editingEntry}
                   onFormSubmit={handleFormSubmit}
                 />
               ) : (
-                 // Should not happen if logic is correct, but provide fallback
                  <p className="text-muted-foreground">No entry selected for editing. Please go back to 'View Data'.</p>
               )}
             </CardContent>
@@ -292,7 +284,7 @@ export default function Dashboard() {
                     </div>
                  </div>
                ) : (
-                 <SoilDataTable data={soilData} onEdit={handleEdit} onDelete={handleDelete} />
+                 <SoilDataTable data={soilData} onEdit={handleEdit} onDelete={handleDelete} showActions={true} />
                )}
             </CardContent>
           </Card>
@@ -302,7 +294,7 @@ export default function Dashboard() {
           <div className="space-y-6">
             <Card className="bg-card shadow-md border-border">
               <CardHeader>
-                <CardTitle>Data Trends</CardTitle>
+                <CardTitle>Your Data Trends</CardTitle>
                 <CardDescription>Visualize your soil health trends over time.</CardDescription>
               </CardHeader>
               <CardContent>
@@ -326,14 +318,14 @@ export default function Dashboard() {
 
             {dataLoading ? (
                <Card className="bg-card shadow-md border-border">
-                   <CardHeader><CardTitle>Pedotransfer Analysis</CardTitle></CardHeader>
+                   <CardHeader><CardTitle>Your Pedotransfer Analysis</CardTitle></CardHeader>
                    <CardContent className="flex justify-center items-center py-10">
                       <LoadingSpinner /> <span className="ml-2">Loading analysis data...</span>
                    </CardContent>
                 </Card>
              ) : dataError ? (
                 <Card className="bg-card shadow-md border-border">
-                    <CardHeader><CardTitle>Pedotransfer Analysis</CardTitle></CardHeader>
+                    <CardHeader><CardTitle>Your Pedotransfer Analysis</CardTitle></CardHeader>
                     <CardContent>
                        <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
                            <AlertTriangle className="h-5 w-5" />
@@ -350,6 +342,20 @@ export default function Dashboard() {
           </div>
         </TabsContent>
 
+        {/* New Public Data Tab Content */}
+         <TabsContent key="publicDataTab" value="publicData">
+           <Card className="bg-card shadow-md border-border">
+             <CardHeader>
+               <CardTitle>Public Soil Data</CardTitle>
+               <CardDescription>Explore soil data shared publicly by other users.</CardDescription>
+             </CardHeader>
+             <CardContent>
+               <PublicDataView />
+             </CardContent>
+           </Card>
+         </TabsContent>
+
+
         <TabsContent key="settingsTab" value="settings">
           <Card className="bg-card shadow-md border-border">
             <CardHeader>
@@ -365,3 +371,5 @@ export default function Dashboard() {
     </div>
   );
 }
+
+    
