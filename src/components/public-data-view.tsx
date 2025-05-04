@@ -2,7 +2,8 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData, QuerySnapshot } from 'firebase/firestore';
+// Import collectionGroup directly from firestore
+import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData, QuerySnapshot, collectionGroup } from 'firebase/firestore';
 import { useFirebase } from '@/context/firebase-context';
 import { SoilDataTable } from '@/components/soil-data-table';
 import { LoadingSpinner } from '@/components/loading-spinner';
@@ -27,35 +28,38 @@ export function PublicDataView() {
     setLoading(true);
     setError(null);
 
-    // Query for all documents in the 'soilData' collection group where privacy is 'public'
-    const q = query(
-      collection(db, "users"), // Query the root 'users' collection
-      // Note: Firestore collection group queries require an index.
-      // You'll need to create a composite index in Firebase console:
-      // Collection ID: users
-      // Fields: soilData.privacy (Ascending), soilData.date (Descending)
-      // Query Scope: Collection group
-      // where('soilData.privacy', '==', 'public'), // This subcollection query won't work directly like this. Need collectionGroup.
-      // orderBy('soilData.date', 'desc')
-    );
+    if (!db) {
+      setError("Database connection not available.");
+      setLoading(false);
+      return;
+    }
 
-    // Correct approach using collectionGroup for 'soilData'
-    const soilDataCollectionGroup = collectionGroup(db, 'soilData');
+    // Use the imported collectionGroup function
+    const soilDataCollectionGroupRef = collectionGroup(db, 'soilData');
     const publicQuery = query(
-        soilDataCollectionGroup,
+        soilDataCollectionGroupRef,
         where('privacy', '==', 'public'),
         orderBy('date', 'desc')
+        // Note: Firestore collection group queries require an index.
+        // You'll need to create a composite index in Firebase console:
+        // Collection ID: soilData (or the subcollection name)
+        // Fields: privacy (Ascending), date (Descending)
+        // Query Scope: Collection group
     );
 
 
     const unsubscribe = onSnapshot(
-      publicQuery, // Use the correct query
+      publicQuery,
       (querySnapshot: QuerySnapshot<DocumentData>) => {
         console.log(`PublicDataView: Snapshot received: ${querySnapshot.size} public documents.`);
         const fetchedData: Array<SoilData & { id: string }> = [];
         querySnapshot.forEach((doc) => {
           const docData = doc.data();
-          console.log(`PublicDataView: Processing public doc ${doc.id} from user ${docData.userId}:`, docData);
+          // Extract userId from the document path (users/{userId}/soilData/{docId})
+          const parentPathSegments = doc.ref.parent.path.split('/');
+          const userId = parentPathSegments[parentPathSegments.length - 2]; // The segment before 'soilData' should be the userId
+
+          console.log(`PublicDataView: Processing public doc ${doc.id} from user ${userId}:`, docData);
 
           // Basic validation (similar to dashboard)
           let date = docData.date;
@@ -67,10 +71,14 @@ export function PublicDataView() {
               console.warn(`PublicDataView: Doc ${doc.id} missing or invalid measurementType, skipping.`);
               return;
           }
+          if (!userId) {
+              console.warn(`PublicDataView: Could not determine userId for doc ${doc.id}, skipping.`);
+              return;
+          }
 
           fetchedData.push({
             id: doc.id,
-            userId: docData.userId, // Keep userId to potentially group or filter later
+            userId: userId, // Use the extracted userId
             date: date,
             location: docData.location ?? null,
             locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
@@ -97,7 +105,12 @@ export function PublicDataView() {
       },
       (err) => {
         console.error("PublicDataView: Error fetching public soil data:", err);
-        setError("Failed to load public soil data. It might be an issue with database permissions or indexes. Check the console for details.");
+        // Check for specific Firestore index error
+        if (err.code === 'failed-precondition') {
+             setError("Failed to load public data. A database index is likely required. Please check the Firebase console to create the necessary index for the 'soilData' collection group (querying 'privacy' and ordering by 'date').");
+        } else {
+            setError(`Failed to load public soil data. Error: ${err.message}. Check console for details.`);
+        }
         setLoading(false);
         setPublicData([]);
       }
@@ -165,21 +178,4 @@ export function PublicDataView() {
   );
 }
 
-// Helper function (consider moving to a utils file)
-function collectionGroup(db: any, collectionId: string): any {
-    // This is a placeholder. In actual Firestore SDK v9+, you import collectionGroup directly:
-    // import { collectionGroup } from 'firebase/firestore';
-    // return collectionGroup(db, collectionId);
-    // For now, we'll use the passed 'db' object assuming it has the method,
-    // but this should be replaced with the proper import.
-    if (typeof db.collectionGroup === 'function') {
-         return db.collectionGroup(collectionId);
-    } else {
-         console.error("collectionGroup function not found on db object. Make sure you're using Firestore v9+ modular SDK and importing correctly.");
-         // Return a dummy query object to prevent immediate crash, but it won't work
-         return query(collection(db, 'dummy_collection')); // Placeholder
-    }
-
-}
-
-    
+// Removed the local helper function collectionGroup
