@@ -168,11 +168,16 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
                       ) : entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null ? (
                           <Tooltip>
                               <TooltipTrigger className="cursor-help text-left">
-                                 {/* Display City, Region, Country if available, otherwise Coords */}
-                                 { [entry.city, entry.region, entry.country].filter(Boolean).join(', ') ||
-                                   `Lat: ${entry.latitude.toFixed(4)}, Lon: ${entry.longitude.toFixed(4)}` }
+                                 {/* Show Coords then (Region, Country) */}
+                                 {(() => {
+                                    const coordString = `Lat: ${entry.latitude.toFixed(4)}, Lon: ${entry.longitude.toFixed(4)}`;
+                                    // Prioritize Region, then Country for the parenthesis part
+                                    const details = [entry.region, entry.country].filter(Boolean).join(', ');
+                                    return details ? `${coordString} (${details})` : coordString;
+                                 })()}
                              </TooltipTrigger>
                              <TooltipContent>
+                                 {/* Tooltip can still show full details */}
                                  <p>Lat: {entry.latitude.toFixed(5)}</p>
                                  <p>Lon: {entry.longitude.toFixed(5)}</p>
                                  {entry.city && <p>City: {entry.city}</p>}
@@ -290,3 +295,5 @@ export function SoilDataTable({ data, onEdit, onDelete }: SoilDataTableProps) {
     </TooltipProvider>
   );
 }
+
+    
