@@ -36,6 +36,7 @@ const POINT_ALTITUDE = 0.01; // Slight altitude for visibility
 const POINT_COLOR_VESS = 'rgba(59, 130, 246, 0.75)'; // Blue for VESS
 const POINT_COLOR_COMPOSITION = 'rgba(34, 197, 94, 0.75)'; // Green for Composition
 const POINT_COLOR_OTHER = 'rgba(255, 255, 255, 0.75)'; // White for fallback
+const INITIAL_ALTITUDE = 2.0; // Set a fixed optimal zoom level (altitude)
 
 export function GlobeVisualization({ data }: GlobeVisualizationProps) {
   const globeEl = useRef<GlobeMethods | undefined>(undefined);
@@ -53,17 +54,18 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
     });
 
 
-    // Initial camera position slightly zoomed out and centered
+    // Set initial camera position and configure controls
     if (globeEl.current) {
-      globeEl.current.pointOfView({ lat: 20, lng: 0, altitude: 2.5 }, 1000);
+      globeEl.current.pointOfView({ lat: 20, lng: 0, altitude: INITIAL_ALTITUDE }, 1000); // Use the fixed altitude
        // Configure controls
        const controls = globeEl.current.controls();
        if (controls) {
-         controls.enableZoom = true; // Allow zooming
+         controls.enableZoom = false; // Disable zooming
          controls.autoRotate = true; // Enable auto-rotation
          controls.autoRotateSpeed = 0.3; // Adjust rotation speed
-         controls.minDistance = 100; // Set minimum zoom distance
-         controls.maxDistance = 600; // Set maximum zoom distance
+         // Remove min/max distance as zoom is disabled
+         // controls.minDistance = 100;
+         // controls.maxDistance = 600;
        }
     }
   }, []);
@@ -149,7 +151,7 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
          <div className="flex justify-center items-center h-full"><LoadingSpinner /> <span className='ml-2'>Loading Globe Texture...</span></div>
       )}
        <div className="absolute bottom-2 left-2 text-xs text-muted-foreground/80 bg-black/30 px-2 py-1 rounded">
-            Drag to rotate. Scroll to zoom. Data points represent public GPS entries.
+            Drag to rotate. Data points represent public GPS entries. Zoom disabled.
        </div>
     </div>
   );
