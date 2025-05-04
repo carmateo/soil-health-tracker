@@ -5,6 +5,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { SoilData } from '@/types/soil';
 import type { GlobeMethods } from 'react-globe.gl';
 import { LoadingSpinner } from './loading-spinner';
+import * as THREE from 'three'; // Import THREE directly
 
 // Dynamically import react-globe.gl to ensure it's only loaded client-side
 import dynamic from 'next/dynamic';
@@ -28,7 +29,7 @@ interface GlobeVisualizationProps {
   data: Array<SoilData & { id: string }>;
 }
 
-const GLOBE_IMAGE_URL = '//unpkg.com/three-globe/example/img/earth-night.jpg';
+const GLOBE_IMAGE_URL = '//unpkg.com/three-globe/example/img/earth-day.jpg'; // Use day image for potentially clearer boundaries
 const BACKGROUND_COLOR = 'rgba(0,0,0,0)'; // Transparent background
 const POINT_SIZE = 0.3; // Adjust size of the pins
 const POINT_ALTITUDE = 0.01; // Slight altitude for visibility
@@ -40,9 +41,17 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
   const globeEl = useRef<GlobeMethods | undefined>(undefined);
   const [points, setPoints] = useState<GlobePoint[]>([]);
   const [isClient, setIsClient] = useState(false);
+  const [texture, setTexture] = useState<THREE.Texture | null>(null);
 
   useEffect(() => {
     setIsClient(true); // Indicate that component has mounted on the client
+
+    // Load texture only on the client
+    const loader = new THREE.TextureLoader();
+    loader.load(GLOBE_IMAGE_URL, (loadedTexture) => {
+      setTexture(loadedTexture);
+    });
+
 
     // Initial camera position slightly zoomed out and centered
     if (globeEl.current) {
@@ -86,21 +95,20 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
     setPoints(validPoints);
   }, [data, isClient]);
 
-  // Memoize globe image URL to prevent unnecessary re-renders
-  const globeImageUrl = useMemo(() => GLOBE_IMAGE_URL, []);
-   const globeMaterial = useMemo(() => {
-      if (typeof window === 'undefined') return null; // Ensure THREE is available
-       const THREE = require('three');
-       return new THREE.MeshPhongMaterial({
-           map: new THREE.TextureLoader().load(globeImageUrl), // Load texture
-           // Optional: Add bump map for more detail
-           // bumpMap: new THREE.TextureLoader().load('//unpkg.com/three-globe/example/img/earth-topology.png'),
-           // bumpScale: 0.05,
-           // specularMap: new THREE.TextureLoader().load('//unpkg.com/three-globe/example/img/earth-water.png'),
-           // specular: new THREE.Color('grey'),
-           shininess: 10, // Adjust shininess
-       });
-   }, [isClient, globeImageUrl]);
+  // Memoize the globe material based on the loaded texture
+  const globeMaterial = useMemo(() => {
+     if (!texture) return null; // Don't create material until texture is loaded
+     return new THREE.MeshPhongMaterial({
+         map: texture,
+         color: '#ffffff', // Ensure map color isn't tinted unexpectedly
+         shininess: 5, // Reduce shininess for a less 'plasticky' look
+         transparent: false, // Ensure it's not transparent
+         opacity: 1,
+         // Avoid bump/specular maps for simplicity and performance
+         // bumpMap: undefined,
+         // specularMap: undefined,
+     });
+   }, [texture]); // Recreate material only when texture changes
 
 
   if (!isClient) {
@@ -110,32 +118,36 @@ export function GlobeVisualization({ data }: GlobeVisualizationProps) {
 
   return (
     <div className="relative h-[400px] w-full rounded-md border border-border overflow-hidden bg-gradient-to-br from-blue-950 via-black to-indigo-950">
-      {/* Render Globe component only on the client */}
-      <Globe
-        ref={globeEl}
-        // Globe appearance
-        globeImageUrl={globeImageUrl} // Use basic night image
-        // globeMaterial={globeMaterial as any} // Use custom material if needed
-        backgroundColor={BACKGROUND_COLOR}
-         // Interaction
-        animateIn={true}
-        // Point markers
-        pointsData={points}
-        pointLat="lat"
-        pointLng="lng"
-        pointAltitude={POINT_ALTITUDE}
-        pointRadius="size"
-        pointColor="color"
-        pointsMerge={true} // Optimize rendering for many points
-        pointsTransitionDuration={300} // Animation duration for points
-         // Optional: Tooltips on hover
-         pointLabel={({ date, measurementType }: GlobePoint) => `
-           <div style="background: rgba(40,40,40,0.8); color: white; padding: 5px 8px; border-radius: 4px; font-size: 12px;">
-             <b>Type:</b> ${measurementType || 'N/A'}<br/>
-             <b>Date:</b> ${date ? date.toLocaleDateString() : 'N/A'}
-           </div>
-         `}
-      />
+      {/* Render Globe component only on the client and when material is ready */}
+      {globeMaterial ? (
+        <Globe
+            ref={globeEl}
+            // Globe appearance
+            // globeImageUrl={GLOBE_IMAGE_URL} // Use material instead
+            globeMaterial={globeMaterial as any} // Use the simplified Phong material
+            backgroundColor={BACKGROUND_COLOR}
+            // Interaction
+            animateIn={true}
+            // Point markers
+            pointsData={points}
+            pointLat="lat"
+            pointLng="lng"
+            pointAltitude={POINT_ALTITUDE}
+            pointRadius="size"
+            pointColor="color"
+            pointsMerge={true} // Optimize rendering for many points
+            pointsTransitionDuration={300} // Animation duration for points
+            // Optional: Tooltips on hover
+            pointLabel={({ date, measurementType }: GlobePoint) => `
+            <div style="background: rgba(40,40,40,0.8); color: white; padding: 5px 8px; border-radius: 4px; font-size: 12px;">
+                <b>Type:</b> ${measurementType || 'N/A'}<br/>
+                <b>Date:</b> ${date ? date.toLocaleDateString() : 'N/A'}
+            </div>
+            `}
+        />
+      ) : (
+         <div className="flex justify-center items-center h-full"><LoadingSpinner /> <span className='ml-2'>Loading Globe Texture...</span></div>
+      )}
        <div className="absolute bottom-2 left-2 text-xs text-muted-foreground/80 bg-black/30 px-2 py-1 rounded">
             Drag to rotate. Scroll to zoom. Data points represent public GPS entries.
        </div>

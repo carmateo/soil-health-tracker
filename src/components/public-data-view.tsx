@@ -292,7 +292,7 @@ export function PublicDataView() {
 
        {/* View Mode Toggle */}
        <div className="flex justify-center mb-6">
-         <RadioGroup value={viewMode} onValueChange={handleViewModeChange} className="flex space-x-4 border border-border p-1 rounded-md bg-muted">
+         <RadioGroup value={viewMode} onValueChange={(value) => handleViewModeChange(value as 'charts' | 'globe')} className="flex space-x-4 border border-border p-1 rounded-md bg-muted">
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="charts" id="view-charts" />
              <Label htmlFor="view-charts" className="flex items-center gap-1 cursor-pointer"><AreaChart className="h-4 w-4" /> Charts by User/Location</Label>
