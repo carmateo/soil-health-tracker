@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -30,10 +29,10 @@ const isValidNumber = (value: any): value is number => typeof value === 'number'
 
 interface SoilDataChartsProps {
   data: Array<SoilData & { id: string }>;
-  // Removed isLoading and error props as they are handled by parent (Dashboard)
+  locationName?: string; // Optional prop for context
 }
 
-export function SoilDataCharts({ data }: SoilDataChartsProps) {
+export function SoilDataCharts({ data, locationName }: SoilDataChartsProps) {
 
   // Ensure data is always an array
   const soilData = useMemo(() => Array.isArray(data) ? data : [], [data]);
@@ -96,9 +95,12 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
 
   // Check if *any* data was passed, even if it didn't result in chart data
   if (soilData.length === 0) {
+     const message = locationName
+        ? `No data available for ${locationName} to display charts.`
+        : 'No data available to display charts. Add some soil entries first.';
      return (
         <p className="text-muted-foreground text-center py-10">
-            No data available to display charts. Add some soil entries first.
+            {message}
         </p>
      )
   }
@@ -145,7 +147,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
             </ChartContainer>
           ) : (
             <p className="text-muted-foreground text-center py-10">
-                No VESS score data available in the selected entries.
+                No VESS score data available in the selected entries{locationName ? ` for ${locationName}` : ''}.
             </p>
           )}
            {hasVessData && needsMoreVessData && (
@@ -227,7 +229,7 @@ export function SoilDataCharts({ data }: SoilDataChartsProps) {
             </ChartContainer>
            ) : (
              <p className="text-muted-foreground text-center py-10">
-                No soil composition data (with percentages) available in the selected entries.
+                No soil composition data (with percentages) available in the selected entries{locationName ? ` for ${locationName}` : ''}.
              </p>
            )}
             {hasCompositionData && needsMoreCompositionData && (

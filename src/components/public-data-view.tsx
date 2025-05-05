@@ -1,4 +1,3 @@
-
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -18,6 +17,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Import RadioGroup for view toggle
 import { Label } from '@/components/ui/label'; // Import Label for RadioGroup
 import { GlobeVisualization } from '@/components/globe-visualization'; // Import the new Globe component
+import { getLocationKeyAndName, getUniqueLocations } from '@/lib/location-utils'; // Import utility functions
+
 
 export function PublicDataView() {
   const { db } = useFirebase();
@@ -56,7 +57,7 @@ export function PublicDataView() {
             const fetchedData: Array<SoilData & { id: string }> = [];
             querySnapshot.forEach((doc) => {
               const docData = doc.data();
-              const parentPathSegments = doc.ref.parent.path.split('/');
+              const parentPathSegments = doc.ref.path.split('/');
                if (parentPathSegments.length < 2) {
                   console.warn(`PublicDataView: Invalid document path for doc ${doc.id}, skipping.`);
                   return;
@@ -135,7 +136,26 @@ export function PublicDataView() {
                 } else {
                     setSelectedLocationKey(null); // No locations for the first user?
                 }
+            } else if (selectedUserId && selectedLocationKey && viewMode === 'charts') {
+                // Check if selected user/location combo still exists
+                const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
+                if (!userLocations.some(loc => loc.key === selectedLocationKey)) {
+                    // If selected location is gone for the user, select the first available, or null
+                    setSelectedLocationKey(userLocations.length > 0 ? userLocations[0].key : null);
+                }
+            } else if (selectedUserId && viewMode === 'charts') {
+                 // Check if the selected user still has ANY locations
+                 const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
+                 if (userLocations.length === 0) {
+                     // If user has no locations anymore, reset user selection or select next user?
+                     // For simplicity, let's reset the location key only
+                     setSelectedLocationKey(null);
+                 } else if (!selectedLocationKey) {
+                     // If user is selected but location isn't (e.g., after reset), select first location
+                     setSelectedLocationKey(userLocations[0].key);
+                 }
             }
+
             setLoading(false);
             setError(null);
           },
@@ -172,45 +192,12 @@ export function PublicDataView() {
     return Array.from(ids);
   }, [publicData]);
 
-  // Function to generate a unique key and display name for each location
-  const getLocationKeyAndName = (entry: SoilData): { key: string; name: string; fullDetails: string } => {
-    if (entry.locationOption === 'manual' && entry.location) {
-      const key = `manual_${entry.location}`;
-      return { key, name: entry.location, fullDetails: entry.location };
-    } else if (entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null) {
-      const lat = entry.latitude.toFixed(4);
-      const lon = entry.longitude.toFixed(4);
-      const key = `gps_${lat}_${lon}`;
-      const detailsArray = [entry.city, entry.region, entry.country].filter(Boolean);
-      const detailsString = detailsArray.length > 0 ? ` (${detailsArray.join(', ')})` : '';
-      // Truncate name if too long
-      const baseName = `GPS: ${lat}, ${lon}`;
-      const truncatedDetails = detailsString.length > 25 ? detailsString.substring(0, 22) + '...' : detailsString;
-      const name = baseName + truncatedDetails;
-      const fullDetails = `Lat: ${entry.latitude.toFixed(5)}, Lon: ${entry.longitude.toFixed(5)}${detailsArray.length > 0 ? ` (${detailsArray.join(', ')})` : ''}`;
-      return { key, name, fullDetails };
-    }
-    const key = `unknown_${entry.id}`; // Fallback key
-    return { key, name: 'Unknown Location', fullDetails: 'No location data' };
-  };
 
-  // Get unique locations *for the selected user*
+  // Get unique locations *for the selected user* using the utility function
   const uniqueLocations = useMemo(() => {
     if (!selectedUserId) return [];
     return getUniqueLocations(publicData.filter(entry => entry.userId === selectedUserId));
   }, [publicData, selectedUserId]);
-
-  // Helper to extract unique locations
-  function getUniqueLocations(data: Array<SoilData & { id: string }>): Array<{ key: string; name: string; fullDetails: string }> {
-      const locationsMap = new Map<string, { name: string; fullDetails: string }>();
-      data.forEach(entry => {
-          const { key, name, fullDetails } = getLocationKeyAndName(entry);
-          if (!locationsMap.has(key)) {
-              locationsMap.set(key, { name, fullDetails });
-          }
-      });
-      return Array.from(locationsMap.entries()).map(([key, { name, fullDetails }]) => ({ key, name, fullDetails }));
-  }
 
 
   // Filter data based on selected user *and* selected location (for charts view)
@@ -246,7 +233,7 @@ export function PublicDataView() {
   // Handle user selection change - reset location
   const handleUserChange = (userId: string) => {
       setSelectedUserId(userId);
-      // Find locations for the *newly* selected user
+      // Find locations for the *newly* selected user using utility function
       const newLocations = getUniqueLocations(publicData.filter(entry => entry.userId === userId));
       if (newLocations.length > 0) {
           // Select the first location for the new user
@@ -379,12 +366,12 @@ export function PublicDataView() {
                         <CardDescription>Visualize soil health trends over time for the selected location.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            <SoilDataCharts data={filteredChartData} />
+                            <SoilDataCharts data={filteredChartData} locationName={selectedLocationDisplay}/>
                         </CardContent>
                     </Card>
 
                     {/* Pedotransfer Analysis Chart */}
-                    <PedotransferAnalysisChart data={filteredChartData} />
+                    <PedotransferAnalysisChart data={filteredChartData} locationName={selectedLocationDisplay}/>
 
                     {/* Message if no composition data for the selection */}
                     {!filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
@@ -401,7 +388,7 @@ export function PublicDataView() {
           ) : (
             // Prompt to select user and location
             <p className="text-center text-muted-foreground py-10">
-                {publicData.length === 0 ? 'No public soil data found overall.' : 'Please select a user and location to view their data.'}
+                {publicData.length === 0 ? 'No public soil data found overall.' : (selectedUserId ? 'Please select a location for this user.' : 'Please select a user to view their locations and data.')}
             </p>
           )}
         </>

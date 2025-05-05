@@ -1,9 +1,8 @@
-
 'use client';
 
 import { useAuth } from '@/context/auth-context';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { SoilDataForm } from '@/components/soil-data-form';
 import { SoilDataTable } from '@/components/soil-data-table';
 import { UserSettings } from '@/components/user-settings';
@@ -11,7 +10,7 @@ import { PublicDataView } from '@/components/public-data-view'; // Import the ne
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { PlusCircle, Table, Settings, BarChart3, AlertTriangle, Edit, XCircle, Users } from 'lucide-react'; // Added Users icon
+import { PlusCircle, Table, Settings, BarChart3, AlertTriangle, Edit, XCircle, Users, MapPin } from 'lucide-react'; // Added Users and MapPin icons
 import { SoilDataCharts } from '@/components/soil-data-charts';
 import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-chart';
 import { collection, onSnapshot, query, orderBy, Timestamp, deleteDoc, doc } from "firebase/firestore";
@@ -19,6 +18,10 @@ import { useFirebase } from '@/context/firebase-context';
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { getLocationKeyAndName, getUniqueLocations } from '@/lib/location-utils'; // Import utility functions
+
 
 export default function Dashboard() {
   const { user, loading: authLoading } = useAuth();
@@ -30,6 +33,8 @@ export default function Dashboard() {
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<(SoilData & { id: string }) | null>(null);
+  const [selectedAnalysisLocationKey, setSelectedAnalysisLocationKey] = useState<string | null>(null); // State for analysis location
+
 
   useEffect(() => {
     setIsClient(true);
@@ -63,11 +68,16 @@ export default function Dashboard() {
     try {
       await deleteDoc(docRef);
       console.log("Dashboard: Entry deleted successfully:", entryId);
+      // If the deleted entry was the last one for the selected analysis location, reset selection
+      const remainingForLocation = soilData.filter(d => d.id !== entryId && getLocationKeyAndName(d).key === selectedAnalysisLocationKey);
+      if (remainingForLocation.length === 0) {
+        setSelectedAnalysisLocationKey(null); // Reset if no more data for this location
+      }
     } catch (error) {
       console.error("Dashboard: Error deleting entry:", error);
       throw error;
     }
-  }, [user, db]);
+  }, [user, db, soilData, selectedAnalysisLocationKey]); // Added dependencies
 
 
   useEffect(() => {
@@ -149,6 +159,23 @@ export default function Dashboard() {
           });
           console.log("Dashboard: Processed data for table/charts:", fetchedData);
           setSoilData(fetchedData);
+
+           // Auto-select first location for analysis if none is selected and data exists
+           if (!selectedAnalysisLocationKey && fetchedData.length > 0) {
+               const userLocations = getUniqueLocations(fetchedData);
+               if (userLocations.length > 0) {
+                   setSelectedAnalysisLocationKey(userLocations[0].key);
+               }
+           } else if (selectedAnalysisLocationKey) {
+               // Check if the currently selected location still exists in the new data
+               const userLocations = getUniqueLocations(fetchedData);
+               if (!userLocations.some(loc => loc.key === selectedAnalysisLocationKey)) {
+                  // If the selected location is gone, select the first available one, or null
+                  setSelectedAnalysisLocationKey(userLocations.length > 0 ? userLocations[0].key : null);
+               }
+           }
+
+
           setDataLoading(false);
           setDataError(null);
         },
@@ -165,16 +192,41 @@ export default function Dashboard() {
        }
        setSoilData([]);
        setDataError(null);
+       setSelectedAnalysisLocationKey(null); // Clear selection if user logs out or loading fails
     }
 
     return () => {
        console.log("Dashboard: Unsubscribing from Firestore listener.");
       unsubscribe();
     };
+     // Include selectedAnalysisLocationKey in dependency array? Maybe not, as we handle selection logic within the snapshot handler.
+     // Let's keep it simple for now. If issues arise, revisit dependencies.
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isClient, db, authLoading]);
 
 
   const isLoading = authLoading || !isClient;
+
+    // Get unique locations for the current user's data
+  const userLocations = useMemo(() => {
+    if (!user || soilData.length === 0) return [];
+    return getUniqueLocations(soilData); // Pass the user's data
+  }, [soilData, user]);
+
+   // Filter data based on the selected analysis location
+  const filteredAnalysisData = useMemo(() => {
+    if (!selectedAnalysisLocationKey || soilData.length === 0) {
+      return []; // Return empty if no location selected or no data
+    }
+    return soilData.filter(entry => getLocationKeyAndName(entry).key === selectedAnalysisLocationKey);
+  }, [soilData, selectedAnalysisLocationKey]);
+
+   const selectedAnalysisLocationDisplay = useMemo(() => {
+    if (!selectedAnalysisLocationKey) return 'No Location Selected';
+    const location = userLocations.find(loc => loc.key === selectedAnalysisLocationKey);
+    return location ? location.name : 'Unknown Location';
+   }, [selectedAnalysisLocationKey, userLocations]);
+
 
   if (isLoading) {
     return (
@@ -199,6 +251,7 @@ export default function Dashboard() {
 
 
   return (
+    <TooltipProvider> {/* Add TooltipProvider if not already present */}
     <div className="space-y-8">
       <h1 className="text-3xl font-bold text-primary">Dashboard</h1>
 
@@ -290,57 +343,123 @@ export default function Dashboard() {
           </Card>
         </TabsContent>
 
-        <TabsContent key="analyzeDataTab" value="analyzeData">
-          <div className="space-y-6">
-            <Card className="bg-card shadow-md border-border">
-              <CardHeader>
-                <CardTitle>Your Data Trends</CardTitle>
-                <CardDescription>Visualize your soil health trends over time.</CardDescription>
-              </CardHeader>
-              <CardContent>
-                 {dataLoading ? (
-                    <div className="flex justify-center items-center py-10">
+         <TabsContent key="analyzeDataTab" value="analyzeData">
+           <div className="space-y-6">
+             {/* Location Selector for Analysis */}
+             <Card className="bg-card shadow-md border-border">
+                <CardHeader>
+                    <CardTitle>Select Location for Analysis</CardTitle>
+                    <CardDescription>Choose a location to view its specific trends and analysis.</CardDescription>
+                 </CardHeader>
+                <CardContent>
+                    {dataLoading ? (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                           <LoadingSpinner size={16}/> Loading locations...
+                         </div>
+                     ) : userLocations.length === 0 && !dataError ? (
+                       <p className="text-muted-foreground">No locations found. Add some data first.</p>
+                     ) : dataError ? (
+                         <p className="text-destructive">Error loading locations.</p>
+                     ) : (
+                     <Select
+                       value={selectedAnalysisLocationKey ?? ""}
+                       onValueChange={(key) => setSelectedAnalysisLocationKey(key)}
+                       disabled={userLocations.length === 0}
+                     >
+                       <SelectTrigger className="w-full sm:w-[300px]">
+                         <div className="flex items-center gap-2">
+                           <MapPin className="h-4 w-4 text-muted-foreground" />
+                           <SelectValue placeholder={userLocations.length > 0 ? "Select Location" : "No locations available"} />
+                         </div>
+                       </SelectTrigger>
+                       <SelectContent>
+                         {userLocations.map(loc => (
+                           <SelectItem key={loc.key} value={loc.key}>
+                             <Tooltip>
+                               <TooltipTrigger asChild>
+                                 <div className="flex items-center gap-2 truncate max-w-[280px]">
+                                   <span>{loc.name}</span>
+                                 </div>
+                               </TooltipTrigger>
+                               <TooltipContent side="right" align="start">
+                                 <p>{loc.fullDetails}</p>
+                               </TooltipContent>
+                             </Tooltip>
+                           </SelectItem>
+                         ))}
+                       </SelectContent>
+                     </Select>
+                     )}
+                </CardContent>
+             </Card>
+
+             {/* Data Trends Card (Conditional on Location Selection) */}
+             {selectedAnalysisLocationKey ? (
+               <Card className="bg-card shadow-md border-border">
+                 <CardHeader>
+                    <CardTitle>Data Trends for: {selectedAnalysisLocationDisplay}</CardTitle>
+                   <CardDescription>Visualize your soil health trends over time for the selected location.</CardDescription>
+                 </CardHeader>
+                 <CardContent>
+                   {dataLoading ? (
+                     <div className="flex justify-center items-center py-10">
                        <LoadingSpinner /> <span className="ml-2">Loading chart data...</span>
-                    </div>
-                  ) : dataError ? (
-                    <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
+                     </div>
+                   ) : dataError ? (
+                     <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
                        <AlertTriangle className="h-5 w-5" />
                        <div>
-                          <p className="font-semibold">Error Loading Charts</p>
-                          <p>{dataError}</p>
+                         <p className="font-semibold">Error Loading Charts</p>
+                         <p>{dataError}</p>
                        </div>
-                    </div>
-                  ) : (
-                    <SoilDataCharts data={soilData} />
-                 )}
-              </CardContent>
-            </Card>
+                     </div>
+                   ) : filteredAnalysisData.length === 0 ? (
+                      <p className="text-center text-muted-foreground py-10">No data available for this location.</p>
+                   ) : (
+                     <SoilDataCharts data={filteredAnalysisData} />
+                   )}
+                 </CardContent>
+               </Card>
+             ) : !dataLoading && userLocations.length > 0 && (
+                 <p className="text-center text-muted-foreground">Please select a location above to view its data trends.</p>
+             )}
 
-            {dataLoading ? (
-               <Card className="bg-card shadow-md border-border">
-                   <CardHeader><CardTitle>Your Pedotransfer Analysis</CardTitle></CardHeader>
-                   <CardContent className="flex justify-center items-center py-10">
-                      <LoadingSpinner /> <span className="ml-2">Loading analysis data...</span>
-                   </CardContent>
-                </Card>
-             ) : dataError ? (
-                <Card className="bg-card shadow-md border-border">
-                    <CardHeader><CardTitle>Your Pedotransfer Analysis</CardTitle></CardHeader>
-                    <CardContent>
-                       <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
-                           <AlertTriangle className="h-5 w-5" />
-                           <div>
-                               <p className="font-semibold">Error Loading Analysis</p>
-                               <p>{dataError}</p>
-                           </div>
-                       </div>
-                    </CardContent>
-                </Card>
-              ) : (
-                <PedotransferAnalysisChart data={soilData} />
-            )}
-          </div>
-        </TabsContent>
+             {/* Pedotransfer Analysis Card (Conditional on Location Selection) */}
+             {selectedAnalysisLocationKey ? (
+                 dataLoading ? (
+                     <Card className="bg-card shadow-md border-border">
+                        <CardHeader><CardTitle>Pedotransfer Analysis for: {selectedAnalysisLocationDisplay}</CardTitle></CardHeader>
+                        <CardContent className="flex justify-center items-center py-10">
+                            <LoadingSpinner /> <span className="ml-2">Loading analysis data...</span>
+                        </CardContent>
+                    </Card>
+                 ) : dataError ? (
+                    <Card className="bg-card shadow-md border-border">
+                        <CardHeader><CardTitle>Pedotransfer Analysis for: {selectedAnalysisLocationDisplay}</CardTitle></CardHeader>
+                        <CardContent>
+                            <div className="text-destructive flex items-center gap-2 p-4 border border-destructive/50 rounded-md bg-destructive/10">
+                            <AlertTriangle className="h-5 w-5" />
+                            <div>
+                                <p className="font-semibold">Error Loading Analysis</p>
+                                <p>{dataError}</p>
+                            </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                 ) : filteredAnalysisData.length === 0 ? (
+                      <Card className="bg-card shadow-md border-border">
+                           <CardHeader><CardTitle>Pedotransfer Analysis for: {selectedAnalysisLocationDisplay}</CardTitle></CardHeader>
+                           <CardContent>
+                              <p className="text-center text-muted-foreground py-10">No data available for this location to perform analysis.</p>
+                            </CardContent>
+                      </Card>
+                 ) : (
+                    <PedotransferAnalysisChart data={filteredAnalysisData} />
+                 )
+             ) : null /* Don't show Pedotransfer card if no location selected */}
+           </div>
+         </TabsContent>
+
 
         {/* New Public Data Tab Content */}
          <TabsContent key="publicDataTab" value="publicData">
@@ -369,7 +488,6 @@ export default function Dashboard() {
         </TabsContent>
       </Tabs>
     </div>
+     </TooltipProvider>
   );
 }
-
-    

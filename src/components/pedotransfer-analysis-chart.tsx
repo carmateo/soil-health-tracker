@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useMemo } from 'react';
@@ -8,6 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LabelL
 import type { SoilData } from '@/types/soil';
 import { calculateSoilProperties } from '@/lib/soil-calculations';
 import { format, isValid } from 'date-fns';
+import { getLocationKeyAndName } from '@/lib/location-utils'; // Import helper
 
 // Define chart data type
 interface PedotransferChartData {
@@ -22,9 +22,10 @@ const isValidNumber = (value: any): value is number => typeof value === 'number'
 
 interface PedotransferAnalysisChartProps {
   data: Array<SoilData & { id: string }>;
+  locationName?: string; // Optional prop to display location name in title
 }
 
-export function PedotransferAnalysisChart({ data }: PedotransferAnalysisChartProps) {
+export function PedotransferAnalysisChart({ data, locationName }: PedotransferAnalysisChartProps) {
 
   const soilData = useMemo(() => Array.isArray(data) ? data : [], [data]);
 
@@ -71,18 +72,28 @@ export function PedotransferAnalysisChart({ data }: PedotransferAnalysisChartPro
   const hasPtfData = pedotransferChartData.length > 0;
   const needsMorePtfData = pedotransferChartData.length < 1; // Bar chart only needs 1 bar
 
-  if (soilData.length === 0) {
+  const chartTitle = locationName ? `Pedotransfer Analysis for: ${locationName}` : 'Pedotransfer Analysis';
+
+  if (soilData.length === 0 && !locationName) { // Only show "no data available" if no location context either
      return (
-        <p className="text-muted-foreground text-center py-10">
-            No soil data available for analysis.
-        </p>
+        <Card className="bg-card shadow-md border-border">
+            <CardHeader>
+                <CardTitle>{chartTitle}</CardTitle>
+                 <CardDescription>Estimated Available Water (%) based on Soil Composition</CardDescription>
+            </CardHeader>
+            <CardContent>
+                 <p className="text-muted-foreground text-center py-10">
+                    No soil data available for analysis.
+                 </p>
+            </CardContent>
+        </Card>
      )
   }
 
   return (
     <Card className="bg-card shadow-md border-border">
       <CardHeader>
-        <CardTitle>Pedotransfer Analysis</CardTitle>
+        <CardTitle>{chartTitle}</CardTitle>
         <CardDescription>Estimated Available Water (%) based on Soil Composition</CardDescription>
       </CardHeader>
       <CardContent>
@@ -128,7 +139,7 @@ export function PedotransferAnalysisChart({ data }: PedotransferAnalysisChartPro
           </ChartContainer>
         ) : (
           <p className="text-muted-foreground text-center py-10">
-              No soil composition data with valid Sand and Clay percentages found to calculate Available Water.
+              No soil composition data with valid Sand and Clay percentages found to calculate Available Water{locationName ? ` for ${locationName}` : ''}.
           </p>
         )}
          {hasPtfData && needsMorePtfData && (
