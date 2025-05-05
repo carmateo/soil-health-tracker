@@ -57,29 +57,30 @@ const compositionSpecificSchema = z.object({
   siltPercent: z.number().optional(),
 });
 
-// Define the individual schemas with the measurementType literal
+// Define the individual schemas with the measurementType literal and ALL possible fields
+// Make fields from the *other* type optional/nullable
 const vessFormSchema = baseSchema.extend({
   measurementType: z.literal('vess'),
   vessScore: z.number().min(1).max(5).default(3),
-  // Add nulls for composition fields to satisfy the union base
-  sand: z.null().optional(),
-  clay: z.null().optional(),
-  silt: z.null().optional(),
-  sandPercent: z.null().optional(),
-  clayPercent: z.null().optional(),
-  siltPercent: z.null().optional(),
+  // Make composition fields optional and nullable
+  sand: z.number().min(0).optional().nullable(),
+  clay: z.number().min(0).optional().nullable(),
+  silt: z.number().min(0).optional().nullable(),
+  sandPercent: z.number().optional().nullable(),
+  clayPercent: z.number().optional().nullable(),
+  siltPercent: z.number().optional().nullable(),
 });
 
 const compositionFormSchema = baseSchema.extend({
   measurementType: z.literal('composition'),
-  sand: z.number().min(0, "Cannot be negative").optional(),
-  clay: z.number().min(0, "Cannot be negative").optional(),
-  silt: z.number().min(0, "Cannot be negative").optional(),
-  sandPercent: z.number().optional(),
-  clayPercent: z.number().optional(),
-  siltPercent: z.number().optional(),
-   // Add nulls for VESS fields
-  vessScore: z.null().optional(),
+  sand: z.number().min(0, "Cannot be negative").optional().nullable(),
+  clay: z.number().min(0, "Cannot be negative").optional().nullable(),
+  silt: z.number().min(0, "Cannot be negative").optional().nullable(),
+  sandPercent: z.number().optional().nullable(),
+  clayPercent: z.number().optional().nullable(),
+  siltPercent: z.number().optional().nullable(),
+  // Make VESS field optional and nullable
+  vessScore: z.number().min(1).max(5).optional().nullable(),
 });
 
 
@@ -97,11 +98,6 @@ const formSchema = z.discriminatedUnion('measurementType', [
     message: "Manual location name is required when selected.",
     path: ['manualLocation'],
 }).refine(data => {
-    // Validation for GPS location (ensure coords exist if GPS is chosen)
-    // Allow submission even if GPS fails initially, as user might proceed without it
-    // Error handling for GPS fetching failure is done in the UI instead
-    return true;
-}).refine(data => {
     // Validation for composition measurements
     if (data.measurementType === 'composition') {
         // Check if at least one value is provided and is a number >= 0
@@ -116,9 +112,9 @@ const formSchema = z.discriminatedUnion('measurementType', [
         const anyValueEntered = data.sand !== undefined || data.clay !== undefined || data.silt !== undefined;
         // If any value is entered, at least one must be >= 0 (which is covered by the negative check above)
         // But we need to ensure *something* is entered. Let's adjust: at least one must be defined and non-negative.
-         const isValidComposition = (data.sand === undefined || hasSand) &&
-                                  (data.clay === undefined || hasClay) &&
-                                  (data.silt === undefined || hasSilt) &&
+         const isValidComposition = (data.sand === undefined || data.sand === null || hasSand) &&
+                                  (data.clay === undefined || data.clay === null || hasClay) &&
+                                  (data.silt === undefined || data.silt === null || hasSilt) &&
                                   (hasSand || hasClay || hasSilt); // At least one must be defined and non-negative
 
         return isValidComposition;
@@ -220,6 +216,9 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
          form.resetField('sand');
          form.resetField('clay');
          form.resetField('silt');
+         form.resetField('sandPercent');
+         form.resetField('clayPercent');
+         form.resetField('siltPercent');
          // Ensure VESS score has a default if it was previously undefined or null
          if (form.getValues('vessScore') === undefined || form.getValues('vessScore') === null) {
             form.setValue('vessScore', 3, { shouldValidate: true });
@@ -585,7 +584,9 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                 selected={field.value}
                                 // Update form value and close popover on select
                                 onSelect={(date) => {
-                                    field.onChange(date);
+                                    if (date) { // Ensure date is not undefined
+                                        field.onChange(date);
+                                    }
                                     setIsCalendarOpen(false); // Close calendar after selection
                                 }}
                                 // Optionally disable future dates if needed
@@ -900,7 +901,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         </div>
                      )}
                       {/* Display combined error for composition fields if needed (from refine) */}
-                      {form.formState.errors.sand?.type === 'manual' && form.formState.errors.sand.message && (
+                      {form.formState.errors.sand?.type === 'refine' && form.formState.errors.sand.message && (
                            <Alert variant="destructive" className="mt-4">
                                <AlertTriangle className="h-4 w-4" />
                                <AlertTitle>Input Required</AlertTitle>
@@ -925,3 +926,5 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     </Form>
   );
 }
+
+    

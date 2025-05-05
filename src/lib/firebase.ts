@@ -24,3 +24,4 @@ const db = getFirestore(app);
 
 // Export initialized services and specific Firestore functions
 export { app, auth, db, collectionGroup };
+
