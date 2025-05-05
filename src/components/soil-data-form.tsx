@@ -31,7 +31,7 @@ import { getLocationDetails } from '@/ai/flows/get-location-details-flow'; // Im
 // Base schema for common fields
 const baseSchema = z.object({
   // Keep date as z.date(), default will be handled by useForm
-  date: z.date(),
+  date: z.date({ required_error: "Please select a date." }), // Make date required
   locationOption: z.enum(['gps', 'manual']).default('gps'),
   manualLocation: z.string().optional(),
   latitude: z.number().optional(),
@@ -500,15 +500,32 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
      // Additionally check if measurementType has a value
      const currentMeasurementType = form.getValues('measurementType');
+     const currentDate = form.getValues('date'); // Also check date
 
-     if (result && currentMeasurementType) {
+     if (result && currentMeasurementType && currentDate) { // Check date as well
         setError(null); // Clear general error if validation passes
+        setGpsError(null); // Clear GPS error specifically
         setStep(2);
      } else {
+         // Determine specific error messages
+         if (!currentDate) {
+             form.setError('date', { type: 'manual', message: 'Please select a date.' });
+         }
          if (!currentMeasurementType) {
              // Set error manually if measurementType is still missing
              form.setError('measurementType', { type: 'manual', message: 'Please select a measurement type.' });
          }
+         if (form.getValues('locationOption') === 'manual' && !form.getValues('manualLocation')) {
+             form.setError('manualLocation', { type: 'manual', message: 'Manual location name is required.' });
+         }
+         if (form.getValues('locationOption') === 'gps' && (form.getValues('latitude') === undefined || form.getValues('longitude') === undefined)) {
+              // Don't set an error here automatically, let the validation handle it or show GPS-specific error
+              if (!isGpsLoading && !gpsError) {
+                 // Only set GPS error if not loading and no error exists yet
+                 // setGpsError("Could not obtain GPS coordinates. Try again or enter manually.");
+              }
+         }
+
         // Triggering validation should show errors in the form fields
         toast({ variant: "destructive", title: "Validation Error", description: "Please fill in all required fields for Step 1 correctly." });
      }
@@ -580,18 +597,19 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                             </PopoverTrigger>
                              <PopoverContent className="w-auto p-0" align="start">
                                 <Calendar
-                                mode="single"
-                                selected={field.value}
-                                // Update form value and close popover on select
-                                onSelect={(date) => {
-                                    if (date) { // Ensure date is not undefined
-                                        field.onChange(date);
-                                    }
-                                    setIsCalendarOpen(false); // Close calendar after selection
-                                }}
-                                // Optionally disable future dates if needed
-                                // disabled={(date) => date > new Date()}
-                                initialFocus
+                                    mode="single"
+                                    selected={field.value}
+                                    // Update form value and close popover on select
+                                    onSelect={(date) => {
+                                        if (date) { // Ensure date is not undefined
+                                            field.onChange(date);
+                                        }
+                                        setIsCalendarOpen(false); // Close calendar after selection
+                                    }}
+                                    captionLayout="dropdown-buttons" // Enable dropdowns
+                                    fromYear={1970} // Example: Allow years from 1970
+                                    toYear={new Date().getFullYear() + 5} // Example: Allow up to 5 years in the future
+                                    initialFocus
                                 />
                             </PopoverContent>
                         </Popover>
@@ -926,5 +944,3 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     </Form>
   );
 }
-
-    

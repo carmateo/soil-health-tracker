@@ -3,28 +3,38 @@
 
 import * as React from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { DayPicker } from "react-day-picker"
+import { DayPicker, DropdownProps } from "react-day-picker"
 
 import { cn } from "@/lib/utils" // Import cn
 import { buttonVariants } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area" // Import ScrollArea
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select" // Import Select components
 
-export type CalendarProps = React.ComponentProps<typeof DayPicker>
+export type CalendarProps = React.ComponentProps<typeof DayPicker> & {
+    captionLayout?: "buttons" | "dropdown" | "dropdown-buttons"; // Add captionLayout prop
+}
 
 function Calendar({
   className,
   classNames,
   showOutsideDays = true,
+  captionLayout = "buttons", // Default to buttons
   ...props
 }: CalendarProps) {
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
       className={cn("p-3", className)} // Use cn
+      captionLayout={captionLayout} // Pass captionLayout to DayPicker
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",
         caption: "flex justify-center pt-1 relative items-center",
-        caption_label: "text-sm font-medium",
+        caption_label: cn(
+            "text-sm font-medium",
+             captionLayout?.includes("dropdown") && "hidden" // Hide default label when dropdowns are used
+        ),
+        caption_dropdowns: "flex gap-1", // Style for dropdown container
         nav: "space-x-1 flex items-center",
         nav_button: cn( // Use cn
           buttonVariants({ variant: "outline" }),
@@ -58,11 +68,52 @@ function Calendar({
         day_range_middle:
           "aria-selected:bg-accent aria-selected:text-accent-foreground",
         day_hidden: "invisible",
+        // Dropdown styles
+        dropdown: "rdp-dropdown bg-transparent px-2 py-1.5 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring", // Base style for dropdown trigger
+        dropdown_month: "rdp-dropdown_month", // Specific class for month dropdown
+        dropdown_year: "rdp-dropdown_year", // Specific class for year dropdown
+        dropdown_icon: "ml-2", // Style for dropdown icon if needed
         ...classNames, // Ensure user-provided classNames override defaults
       }}
       components={{
         IconLeft: ({ ...props }) => <ChevronLeft className="h-4 w-4" />,
         IconRight: ({ ...props }) => <ChevronRight className="h-4 w-4" />,
+         Dropdown: ({ value, onChange, children, ...rest }: DropdownProps) => { // Custom Dropdown component
+          const options = React.Children.toArray(
+            children
+          ) as React.ReactElement<React.HTMLProps<HTMLOptionElement>>[]
+          const selected = options.find((child) => child.props.value === value)
+          const handleChange = (newValue: string) => {
+            const changeEvent = {
+              target: { value: newValue },
+            } as React.ChangeEvent<HTMLSelectElement>
+            onChange?.(changeEvent)
+          }
+          return (
+            <Select
+              value={value?.toString()}
+              onValueChange={(newValue) => {
+                handleChange(newValue)
+              }}
+            >
+              <SelectTrigger className="h-7 text-xs py-0 pr-1.5 pl-2">
+                <SelectValue>{selected?.props?.children}</SelectValue>
+              </SelectTrigger>
+              <SelectContent position="popper">
+                 <ScrollArea className={options.length > 10 ? "h-80" : ""}>
+                    {options.map((option, id: number) => (
+                    <SelectItem
+                        key={`${option.props.value}-${id}`}
+                        value={option.props.value?.toString() ?? ""}
+                    >
+                        {option.props.children}
+                    </SelectItem>
+                    ))}
+                 </ScrollArea>
+              </SelectContent>
+            </Select>
+          )
+        },
       }}
       {...props}
     />
