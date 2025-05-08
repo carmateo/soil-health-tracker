@@ -33,6 +33,29 @@ interface RadarChartComparisonProps {
   countryName?: string;
 }
 
+const explanations: Record<string, { higher: string; lower: string }> = {
+  'VESS Score': {
+    higher: "A higher VESS score may suggest soil compaction or poor structure.",
+    lower: "A lower VESS score can indicate better soil structure and porosity.",
+  },
+  'Sand %': {
+    higher: "Higher sand content can reduce water retention and nutrient availability.",
+    lower: "Lower sand content may indicate better water holding capacity.",
+  },
+  'Clay %': {
+    higher: "Higher clay levels improve water retention but may reduce aeration.",
+    lower: "Low clay content can reduce the soil's ability to hold water and nutrients.",
+  },
+  'Silt %': {
+    higher: "More silt can improve fertility and water retention.",
+    lower: "Low silt may limit nutrient and water storage.",
+  },
+  'TAW %': {
+    higher: "Higher TAW means the soil can store more water for plant use.",
+    lower: "Low TAW may indicate poor water holding capacity.",
+  },
+};
+
 export function RadarChartComparison({
   locationData,
   countryAverageData,
@@ -127,39 +150,50 @@ export function RadarChartComparison({
     const locVal = preparedLocationMetrics ? preparedLocationMetrics[item.key as keyof typeof preparedLocationMetrics] : null;
     const countryVal = countryAverageData ? countryAverageData[item.key as keyof typeof countryAverageData] : null;
 
+    // Skip if either value is null, as comparison is not possible for this item
     if (locVal === null || countryVal === null) return null; 
     
     const difference = locVal - countryVal;
+    // Avoid division by zero if countryVal is 0
     const percentageDifference = countryVal !== 0 ? (difference / countryVal) * 100 : (difference > 0 ? Infinity : (difference < 0 ? -Infinity : 0));
     
     let comparisonTextSimple = "Similar";
     let isAbove = false;
     let isBelow = false;
 
-    if (percentageDifference > 10) {
+    if (percentageDifference > 10) { // More than 10% higher
         comparisonTextSimple = `${Math.abs(percentageDifference).toFixed(0)}% Higher`;
         isAbove = true;
-    } else if (percentageDifference < -10) {
+    } else if (percentageDifference < -10) { // More than 10% lower
         comparisonTextSimple = `${Math.abs(percentageDifference).toFixed(0)}% Lower`;
         isBelow = true;
-    } else if (percentageDifference === Infinity) {
+    } else if (percentageDifference === Infinity) { // Location has value, country is 0
         comparisonTextSimple = `Much Higher`;
         isAbove = true;
-    } else if (percentageDifference === -Infinity) {
+    } else if (percentageDifference === -Infinity) { // Location is negative, country is 0 (less likely with positive soil metrics)
         comparisonTextSimple = `Much Lower`;
         isBelow = true;
-    } else if (difference > 0 && countryVal === 0) {
+    } else if (difference > 0 && countryVal === 0) { // Special case where countryVal is 0 and locVal is positive
         comparisonTextSimple = `Higher`;
         isAbove = true;
-    } else if (difference < 0 && countryVal === 0) { // Should not happen with VESS/percentages
-        comparisonTextSimple = `Lower`;
-        isBelow = true;
     }
+    // No explicit "Lower" for countryVal === 0 as it's covered by Much Lower or similar if locVal is negative (unlikely here)
 
-    const decimals = item.key === 'vessScore' ? 1 : (item.key === 'tawPercent' ? 1 : 0);
-    const unit = item.key === 'vessScore' ? '' : '%';
+    const decimals = item.key === 'vessScore' ? 1 : (item.key === 'tawPercent' ? 1 : 0); // TAW can be float, others usually integer %
+    const unit = item.key === 'vessScore' ? '' : '%'; // VESS is unitless score
     const locationDisplayVal = locVal.toFixed(decimals);
     const countryDisplayVal = countryVal.toFixed(decimals);
+    
+    let explanationText = "";
+    const subjectExplanations = explanations[item.subject];
+    if (subjectExplanations) {
+      if (isAbove) { // locVal is higher than countryVal
+        explanationText = subjectExplanations.higher;
+      } else if (isBelow) { // locVal is lower than countryVal
+        explanationText = subjectExplanations.lower;
+      }
+      // No explanation if "Similar" or edge cases not covered by isAbove/isBelow
+    }
 
     return {
       subject: item.subject,
@@ -167,9 +201,10 @@ export function RadarChartComparison({
       averageValueFormatted: `${countryDisplayVal}${unit}`,
       comparisonTextSimple,
       isAbove,
-      isBelow
+      isBelow,
+      explanation: explanationText
     };
-  }).filter(Boolean);
+  }).filter(Boolean); // Remove null items where comparison wasn't possible
 
 
   return (
@@ -249,20 +284,36 @@ export function RadarChartComparison({
             <CardContent className="space-y-3 p-4">
                 {summaryItems.map(item => item && (
                     <div key={item.subject} className="text-sm p-3 border border-border rounded-md bg-background hover:bg-muted/30 transition-colors">
-                        <div className="flex justify-between items-baseline mb-1">
-                            <span className="font-semibold text-card-foreground">{item.subject}</span>
-                            <span className={cn("text-xs font-semibold px-2 py-1 rounded-full",
-                                item.isAbove ? "bg-primary/10 text-primary" : 
-                                item.isBelow ? "bg-destructive/10 text-destructive" : 
-                                "bg-muted text-muted-foreground"
-                            )}>
-                                {item.comparisonTextSimple}
-                            </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground flex flex-col sm:flex-row sm:justify-between">
-                            <span>{locationName}: <span className="font-medium text-foreground">{item.locationValueFormatted}</span></span>
-                            <span className="hidden sm:inline mx-1.5">&bull;</span>
-                            <span>{countryName}: <span className="font-medium text-foreground">{item.averageValueFormatted}</span></span>
+                        <div className="grid grid-cols-[2fr,1fr] gap-x-4 items-start"> {/* Main grid: Left for subject/values, Right for comparison/explanation */}
+                            {/* Left Column: Subject, Location Value, Country Value */}
+                            <div className="space-y-0.5">
+                                <div className="font-semibold text-card-foreground">{item.subject}</div>
+                                <div className="text-xs">
+                                    <span className="text-muted-foreground">{locationName}: </span>
+                                    <span className="font-medium text-foreground">{item.locationValueFormatted}</span>
+                                </div>
+                                <div className="text-xs mt-0.5"> {/* Country value below location, aligned left within this column */}
+                                    <span className="text-muted-foreground">{countryName}: </span>
+                                    <span className="font-medium text-foreground">{item.averageValueFormatted}</span>
+                                </div>
+                            </div>
+
+                            {/* Right Column: Comparison Label and Explanation */}
+                            <div className="text-right space-y-1">
+                                <span className={cn(
+                                    "text-xs font-semibold px-2 py-0.5 rounded-full inline-block", // inline-block for proper bg
+                                    item.isAbove ? "bg-primary/10 text-primary" : 
+                                    item.isBelow ? "bg-destructive/10 text-destructive" : 
+                                    "bg-muted text-muted-foreground"
+                                )}>
+                                    {item.comparisonTextSimple}
+                                </span>
+                                {item.explanation && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {item.explanation}
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 ))}
@@ -279,4 +330,3 @@ export function RadarChartComparison({
     </div>
   );
 }
-
