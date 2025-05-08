@@ -4,7 +4,7 @@
 import React from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend, Tooltip as RechartsTooltip } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import type { SoilData } from '@/types/soil'; // Assuming SoilData might have tawPercent
+import type { SoilData } from '@/types/soil';
 import { calculateSoilProperties } from '@/lib/soil-calculations';
 
 interface RadarChartDataPoint {
@@ -14,12 +14,14 @@ interface RadarChartDataPoint {
   fullMark: number;
 }
 
-// Define a more specific type for locationData prop if needed
-type LocationDataType = SoilData & { tawPercent?: number | null };
+// Define a more specific type for locationData prop
+// It should be a SoilData object, with an optional, pre-calculated tawPercent
+export type LocationDataType = SoilData & { id: string; tawPercent?: number | null };
+
 
 interface RadarChartComparisonProps {
-  locationData: LocationDataType | null;
-  countryAverageData: {
+  locationData: LocationDataType | null; // User's specific location data
+  countryAverageData: { // Simulated country average data
     vessScore: number | null;
     sandPercent: number | null;
     clayPercent: number | null;
@@ -32,7 +34,8 @@ interface RadarChartComparisonProps {
 
 const normalizeValue = (value: number | null | undefined, max: number): number | null => {
   if (value === null || value === undefined || isNaN(value)) return null;
-  return Math.max(0, Math.min(value, max));
+  // Values are actual scores/percentages, fullMark in chartData defines axis scale
+  return Math.max(0, Math.min(value, max)); 
 };
 
 export function RadarChartComparison({
@@ -42,7 +45,8 @@ export function RadarChartComparison({
   countryName = "Country Average"
 }: RadarChartComparisonProps) {
 
-  if (!locationData || !countryAverageData) {
+  // If either essential data is missing, show placeholder
+  if (!countryAverageData) { // locationData can be null if no data for selected user location
     return (
       <Card className="bg-card shadow-md border-border">
         <CardHeader>
@@ -51,22 +55,28 @@ export function RadarChartComparison({
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-center py-10">
-            Please select a location and a country to compare data.
+            Please select a country to compare data. If a location is selected, its data will also be shown.
           </p>
         </CardContent>
       </Card>
     );
   }
   
-  // Calculate TAW for locationData if not already present and it's composition type
-  let finalLocationData = { ...locationData };
-  if (locationData.measurementType === 'composition' && 
-      locationData.tawPercent === undefined && // Check if TAW is not already calculated
-      locationData.clayPercent != null && 
-      locationData.sandPercent != null) {
-    const properties = calculateSoilProperties(locationData.clayPercent, locationData.sandPercent);
-    if (properties) {
-      finalLocationData.tawPercent = properties.availableWater;
+  // Prepare final location data, calculating TAW if necessary
+  // This ensures finalLocationDataForChart always has the structure including tawPercent if applicable
+  let finalLocationDataForChart: LocationDataType | null = null;
+  if (locationData) {
+    finalLocationDataForChart = { ...locationData }; // Clone to avoid mutating prop
+    if (
+        finalLocationDataForChart.measurementType === 'composition' &&
+        finalLocationDataForChart.tawPercent === undefined && // Only calculate if not already provided
+        finalLocationDataForChart.clayPercent != null &&
+        finalLocationDataForChart.sandPercent != null
+    ) {
+        const properties = calculateSoilProperties(finalLocationDataForChart.clayPercent, finalLocationDataForChart.sandPercent);
+        if (properties) {
+            finalLocationDataForChart.tawPercent = properties.availableWater;
+        }
     }
   }
 
@@ -74,35 +84,35 @@ export function RadarChartComparison({
   const chartData: RadarChartDataPoint[] = [
     {
       subject: 'VESS Score',
-      locationValue: normalizeValue(finalLocationData.vessScore, 5),
+      locationValue: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.vessScore, 5) : null,
       averageValue: normalizeValue(countryAverageData.vessScore, 5),
       fullMark: 5,
     },
     {
       subject: 'Sand %',
-      locationValue: normalizeValue(finalLocationData.sandPercent, 100),
+      locationValue: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.sandPercent, 100) : null,
       averageValue: normalizeValue(countryAverageData.sandPercent, 100),
       fullMark: 100,
     },
     {
       subject: 'Clay %',
-      locationValue: normalizeValue(finalLocationData.clayPercent, 100),
+      locationValue: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.clayPercent, 100) : null,
       averageValue: normalizeValue(countryAverageData.clayPercent, 100),
       fullMark: 100,
     },
     {
       subject: 'Silt %',
-      locationValue: normalizeValue(finalLocationData.siltPercent, 100),
+      locationValue: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.siltPercent, 100) : null,
       averageValue: normalizeValue(countryAverageData.siltPercent, 100),
       fullMark: 100,
     },
     {
-      subject: 'TAW %',
-      locationValue: normalizeValue(finalLocationData.tawPercent, 50), // Max TAW e.g. 50%
+      subject: 'TAW %', // Total Available Water
+      locationValue: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.tawPercent, 50) : null, // Max TAW e.g. 50%
       averageValue: normalizeValue(countryAverageData.tawPercent, 50),
-      fullMark: 50,
+      fullMark: 50, // Set a reasonable max for TAW percentage for the axis scale
     },
-  ].filter(item => item.locationValue !== null || item.averageValue !== null) as RadarChartDataPoint[];
+  ].filter(item => item.locationValue !== null || item.averageValue !== null); // Keep if at least one value exists
 
 
   if (chartData.length === 0) {
@@ -114,7 +124,7 @@ export function RadarChartComparison({
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-center py-10">
-            Insufficient data for comparison. Ensure VESS score or composition percentages are available for your location.
+            Insufficient data for comparison. Ensure VESS score or composition percentages are available.
           </p>
         </CardContent>
       </Card>
@@ -122,18 +132,19 @@ export function RadarChartComparison({
   }
   
   const summaryItems = chartData.map(item => {
-    if (item.locationValue === null || item.averageValue === null) return null;
+    if (item.locationValue === null || item.averageValue === null) return null; // Only summarize if both values exist
     const difference = item.locationValue - item.averageValue;
     const percentageDifference = item.averageValue !== 0 ? (difference / item.averageValue) * 100 : (difference > 0 ? 100 : (difference < 0 ? -100 : 0));
-    let comparisonText = "similar to average";
-    if (percentageDifference > 10) comparisonText = `${Math.abs(percentageDifference).toFixed(0)}% above average`; // Adjusted threshold
-    else if (percentageDifference < -10) comparisonText = `${Math.abs(percentageDifference).toFixed(0)}% below average`; // Adjusted threshold
     
-    const unit = item.subject === 'VESS Score' ? '' : '%';
+    let comparisonText = "similar to average";
+    if (percentageDifference > 10) comparisonText = `${Math.abs(percentageDifference).toFixed(0)}% above average`;
+    else if (percentageDifference < -10) comparisonText = `${Math.abs(percentageDifference).toFixed(0)}% below average`;
+    
+    const unit = item.subject === 'VESS Score' ? '' : '%'; // VESS is a score, others are %
     return {
       subject: item.subject,
-      locationValue: item.locationValue.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
-      averageValue: item.averageValue.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
+      locationValueFormatted: item.locationValue.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
+      averageValueFormatted: item.averageValue.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
       comparisonText
     };
   }).filter(Boolean);
@@ -143,9 +154,10 @@ export function RadarChartComparison({
     <div className="space-y-6">
       <Card className="bg-card shadow-md border-border">
         <CardHeader>
-          <CardTitle>Soil Data Comparison: {locationName} vs. {countryName}</CardTitle>
+          <CardTitle>Soil Data Comparison: {locationData ? locationName : 'N/A'} vs. {countryName}</CardTitle>
           <CardDescription>
             Visual comparison of key soil health indicators.
+            {!locationData && <span className="block text-xs text-muted-foreground italic"> (No data for "{locationName}" to display on chart)</span>}
           </CardDescription>
         </CardHeader>
         <CardContent className="h-[400px] w-full p-2">
@@ -154,8 +166,27 @@ export function RadarChartComparison({
               <PolarGrid stroke="hsl(var(--border))" />
               <PolarAngleAxis dataKey="subject" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
               <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
-              <Radar name={locationName} dataKey="locationValue" stroke="hsl(var(--chart-1))" fill="hsl(var(--chart-1))" fillOpacity={0.5} />
-              <Radar name={countryName} dataKey="averageValue" stroke="hsl(var(--chart-2))" fill="hsl(var(--chart-2))" fillOpacity={0.5} />
+              
+              {/* Radar for User's Location Data */}
+              {locationData && ( // Only render this Radar if locationData is present
+                <Radar 
+                  name={locationName} 
+                  dataKey="locationValue" 
+                  stroke="hsl(var(--chart-1))" 
+                  fill="hsl(var(--chart-1))" 
+                  fillOpacity={0.5} 
+                />
+              )}
+              
+              {/* Radar for Country Average Data */}
+              <Radar 
+                name={countryName} 
+                dataKey="averageValue" 
+                stroke="hsl(var(--chart-2))" 
+                fill="hsl(var(--chart-2))" 
+                fillOpacity={0.5} 
+              />
+              
               <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '20px' }} />
               <RechartsTooltip
                 contentStyle={{
@@ -165,8 +196,10 @@ export function RadarChartComparison({
                   fontSize: '12px'
                 }}
                 formatter={(value: number, name: string, entry) => {
+                    // entry.payload.subject refers to the metric (VESS Score, Sand %, etc.)
                     const unit = entry.payload.subject === 'VESS Score' ? '' : '%';
-                    return [`${value?.toFixed(1)}${unit}`, name];
+                    // Value can be null if dataKey for a series is missing for that subject
+                    return value !== null ? [`${value?.toFixed(1)}${unit}`, name] : [null, name];
                 }}
                />
             </RadarChart>
@@ -174,22 +207,26 @@ export function RadarChartComparison({
         </CardContent>
       </Card>
       
-      <Card>
-        <CardHeader>
-            <CardTitle>Comparison Summary</CardTitle>
-            <CardDescription>How {locationName}'s soil data compares to the national average for {countryName}.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-            {summaryItems.length > 0 ? summaryItems.map(item => item && (
-                <div key={item.subject} className="text-sm p-2 border-b border-border last:border-b-0">
-                    <span className="font-semibold">{item.subject}:</span> Your location is {item.comparisonText}.
-                    <span className="text-xs text-muted-foreground"> (Your: {item.locationValue}, Avg: {item.averageValue})</span>
-                </div>
-            )) : (
-                <p className="text-muted-foreground">Not enough data for a detailed summary.</p>
-            )}
-        </CardContent>
-      </Card>
+      {locationData && summaryItems.length > 0 && ( // Only show summary if location data and comparable items exist
+        <Card>
+            <CardHeader>
+                <CardTitle>Comparison Summary</CardTitle>
+                <CardDescription>How {locationName}'s soil data compares to the national average for {countryName}.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+                {summaryItems.map(item => item && ( // item is already filtered for Boolean
+                    <div key={item.subject} className="text-sm p-2 border-b border-border last:border-b-0">
+                        <span className="font-semibold">{item.subject}:</span> Your location is {item.comparisonText}.
+                        <span className="text-xs text-muted-foreground"> (Your: {item.locationValueFormatted}, Avg: {item.averageValueFormatted})</span>
+                    </div>
+                ))}
+            </CardContent>
+        </Card>
+      )}
+       {locationData && summaryItems.length === 0 && (
+         <p className="text-muted-foreground text-center text-sm">Not enough overlapping data points for a detailed summary between your location and the country average.</p>
+       )}
     </div>
   );
 }
+

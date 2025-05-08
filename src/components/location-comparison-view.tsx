@@ -15,6 +15,7 @@ import { AlertTriangle, MapPin, Globe } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Label } from '@/components/ui/label';
 import { RadarChartComparison } from '@/components/radar-chart-comparison';
+import type { LocationDataType } from '@/components/radar-chart-comparison';
 
 
 const countriesList = [
@@ -275,7 +276,7 @@ export function LocationComparisonView() {
     return getUniqueLocations(userSoilData);
   }, [userSoilData, user]);
 
-  const selectedLocationSoilData = useMemo(() => {
+  const selectedLocationSoilData: LocationDataType | null = useMemo(() => {
     if (!selectedUserLocationKey || !userSoilData.length) return null;
 
     const entriesForLocation = userSoilData.filter(
@@ -294,32 +295,33 @@ export function LocationComparisonView() {
     }
     return {
       ...latestEntry,
-      tawPercent: tawPercent,
+      tawPercent: tawPercent, // Ensure tawPercent is part of the returned object for LocationDataType
     };
   }, [selectedUserLocationKey, userSoilData]);
 
   const simulatedCountryData = useMemo(() => {
     if (!selectedCountry) return null;
+    // Simple hash function for deterministic "random" values based on country code
     let hash = 0;
     for (let i = 0; i < selectedCountry.length; i++) {
       const char = selectedCountry.charCodeAt(i);
       hash = (hash << 5) - hash + char;
-      hash |= 0; 
+      hash |= 0; // Convert to 32bit integer
     }
     const random = (seedModifier: number) => {
       const x = Math.sin(hash + seedModifier) * 10000;
       return x - Math.floor(x);
     };
-    const sandP = parseFloat((random(2) * 50 + 20).toFixed(1));
-    const clayP = parseFloat((random(3) * 30 + 10).toFixed(1));
-    const siltP = parseFloat(Math.max(0, 100 - sandP - clayP).toFixed(1));
+    const sandP = parseFloat((random(2) * 50 + 20).toFixed(1)); // Sand 20-70%
+    const clayP = parseFloat((random(3) * 30 + 10).toFixed(1)); // Clay 10-40%
+    const siltP = parseFloat(Math.max(0, 100 - sandP - clayP).toFixed(1)); // Silt calculated
 
     return {
-      vessScore: parseFloat((random(1) * 3.5 + 1.5).toFixed(1)),
+      vessScore: parseFloat((random(1) * 3.5 + 1.5).toFixed(1)), // VESS 1.5-5.0
       sandPercent: sandP,
       clayPercent: clayP,
       siltPercent: siltP,
-      tawPercent: parseFloat((random(4) * 15 + 5).toFixed(1)), 
+      tawPercent: parseFloat((random(4) * 15 + 5).toFixed(1)), // TAW 5-20%
     };
   }, [selectedCountry]);
 
@@ -397,16 +399,22 @@ export function LocationComparisonView() {
             </div>
           </div>
 
-          {selectedUserLocationKey && selectedCountry && selectedLocationSoilData && simulatedCountryData && (
+          {selectedUserLocationKey && selectedCountry && simulatedCountryData && ( // selectedLocationSoilData can be null if no data for key
             <div className="mt-8 pt-6 border-t border-border">
               <RadarChartComparison
-                locationData={selectedLocationSoilData}
+                locationData={selectedLocationSoilData} // Pass the processed user location data
                 countryAverageData={simulatedCountryData}
                 locationName={userLocations.find(loc => loc.key === selectedUserLocationKey)?.name || "Your Location"}
                 countryName={countriesList.find(c => c.value === selectedCountry)?.label || "Selected Country"}
               />
             </div>
           )}
+           {/* Placeholder if selections are made but location data is missing */}
+           {selectedUserLocationKey && selectedCountry && !selectedLocationSoilData && !loadingUserSoilData &&(
+                <p className="text-muted-foreground text-center py-10">
+                    No soil data found for the selected location to compare.
+                </p>
+            )}
         </CardContent>
       </Card>
     </TooltipProvider>
