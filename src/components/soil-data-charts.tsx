@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo } from 'react';
@@ -178,7 +179,18 @@ export function SoilDataCharts({ data, locationName }: SoilDataChartsProps) {
                      <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} fontSize={12} interval="preserveStartEnd"/>
                      {/* Y axis represents percentage 0-1 when stackOffset="expand" */}
                      <YAxis type="number" domain={[0, 1]} tickFormatter={(value) => `${Math.round(value * 100)}%`} tickLine={false} axisLine={false} tickMargin={8} width={40} />
-                     <ChartTooltip content={<ChartTooltipContent indicator="dot" formatter={(value, name, props) => [`${(value * 100).toFixed(0)}%`, name]} />} cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }}/>
+                     <ChartTooltip 
+                        content={<ChartTooltipContent 
+                                    indicator="dot" 
+                                    formatter={(value, name, props) => {
+                                        // For stackOffset="expand", 'value' in tooltip is the original data value (0-100 for these percentages)
+                                        // not the 0-1 normalized value used for rendering.
+                                        // The Y-axis tickFormatter correctly multiplies by 100 as it gets the 0-1 value.
+                                        return [`${value.toFixed(0)}%`, name];
+                                    }} 
+                                />} 
+                        cursor={{ stroke: 'hsl(var(--accent))', strokeWidth: 1 }}
+                    />
                      <ChartLegend content={<ChartLegendContent verticalAlign="bottom" wrapperStyle={{ bottom: 0, left: 20 }}/>} />
                      <defs>
                         <linearGradient id="fillSand" x1="0" y1="0" x2="0" y2="1">
@@ -242,3 +254,4 @@ export function SoilDataCharts({ data, locationName }: SoilDataChartsProps) {
     </div>
   );
 }
+
