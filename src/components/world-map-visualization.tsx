@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { calculateSoilProperties } from '@/lib/soil-calculations';
-import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers, Wind, Leaf, MapPin } from 'lucide-react'; // Replaced Sand with Layers, MapPinIcon with MapPin
+import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers, Wind, Leaf, MapPin } from 'lucide-react';
 
 // Use a TopoJSON file that defines country features
 const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
@@ -56,65 +56,26 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
   const handleCountryClick = useCallback((countryName: string) => {
     setSelectedCountryName(countryName);
-    const countryEntries = data.filter(entry => entry.country?.toLowerCase() === countryName.toLowerCase());
-    
-    let sumVessScore = 0;
-    let vessCount = 0;
-    let sumSandPercent = 0;
-    let sumClayPercent = 0;
-    let sumSiltPercent = 0;
-    // let sumTawPercent = 0; // This was unused
-    let compositionCount = 0;
 
-    countryEntries.forEach(entry => {
-      if (entry.measurementType === 'vess' && typeof entry.vessScore === 'number') {
-        sumVessScore += entry.vessScore;
-        vessCount++;
-      } else if (entry.measurementType === 'composition') {
-        let entryAddedToCompositionCount = false;
-        if (typeof entry.sandPercent === 'number') {
-          sumSandPercent += entry.sandPercent;
-          if (!entryAddedToCompositionCount) { compositionCount++; entryAddedToCompositionCount = true; }
-        }
-        if (typeof entry.clayPercent === 'number') {
-          sumClayPercent += entry.clayPercent;
-          if (!entryAddedToCompositionCount) { compositionCount++; entryAddedToCompositionCount = true; }
-        }
-        if (typeof entry.siltPercent === 'number') {
-          sumSiltPercent += entry.siltPercent;
-          if (!entryAddedToCompositionCount) { compositionCount++; entryAddedToCompositionCount = true; }
-        }
-        
-        // TAW calculation handled separately below for clarity
-      }
-    });
-    
-    let validTawEntries = 0;
-    let tempSumTaw = 0;
-    countryEntries.forEach(entry => {
-        if (entry.measurementType === 'composition' && 
-            typeof entry.clayPercent === 'number' && 
-            typeof entry.sandPercent === 'number') {
-            const properties = calculateSoilProperties(entry.clayPercent, entry.sandPercent);
-            if (properties && typeof properties.availableWater === 'number') {
-                tempSumTaw += properties.availableWater;
-                validTawEntries++;
-            }
-        }
-    });
-
+    // Mock data for display purposes
+    const mockSampleCount = Math.floor(Math.random() * 100) + 5; // Random sample count between 5 and 104
+    const mockAvgVessScore = parseFloat((Math.random() * 4 + 1).toFixed(1)); // Random VESS score between 1.0 and 5.0
+    const mockSandPercent = parseFloat((Math.random() * 60 + 20).toFixed(1)); // Random sand % between 20 and 80
+    const mockClayPercent = parseFloat((Math.random() * 40 + 10).toFixed(1)); // Random clay % between 10 and 50
+    const mockSiltPercent = parseFloat(Math.max(0, 100 - mockSandPercent - mockClayPercent).toFixed(1)); // Calculate silt to roughly sum to 100
+    const mockTawPercent = parseFloat((Math.random() * 15 + 5).toFixed(1)); // Random TAW % between 5 and 20
 
     setAggregatedData({
       name: countryName,
-      sampleCount: countryEntries.length,
-      avgVessScore: vessCount > 0 ? parseFloat((sumVessScore / vessCount).toFixed(2)) : null,
-      avgSandPercent: compositionCount > 0 ? parseFloat((sumSandPercent / compositionCount).toFixed(2)) : null,
-      avgClayPercent: compositionCount > 0 ? parseFloat((sumClayPercent / compositionCount).toFixed(2)) : null,
-      avgSiltPercent: compositionCount > 0 ? parseFloat((sumSiltPercent / compositionCount).toFixed(2)) : null,
-      avgTawPercent: validTawEntries > 0 ? parseFloat((tempSumTaw / validTawEntries).toFixed(2)) : null,
+      sampleCount: mockSampleCount,
+      avgVessScore: mockAvgVessScore,
+      avgSandPercent: mockSandPercent,
+      avgClayPercent: mockClayPercent,
+      avgSiltPercent: mockSiltPercent,
+      avgTawPercent: mockTawPercent,
     });
     setIsSheetOpen(true);
-  }, [data]);
+  }, []); // Removed `data` dependency as we are using mock data for now
 
   const handleSheetOpenChange = (open: boolean) => {
     setIsSheetOpen(open);
@@ -150,7 +111,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
               zoom={currentZoom} 
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
               minZoom={0.75} 
-              maxZoom={12} // Increased maxZoom
+              maxZoom={12}
             >
               <Sphere
                 stroke="hsl(var(--border))"
@@ -199,7 +160,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                             <g transform={`scale(${markerScale()}) translate(-1.25 -1.25)`}> {/* Center the slightly smaller circle */}
+                             <g transform={`scale(${markerScale()}) translate(-1.25 -1.25)`}>
                                 <circle r={1.25} fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={0.25} className="transition-all drop-shadow-sm hover:r-[1.75px]"/>
                             </g>
                         </TooltipTrigger>
@@ -227,65 +188,66 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             <SheetTitle className="text-2xl font-semibold text-primary">{aggregatedData?.name || 'Country Data'}</SheetTitle>
             <SheetDescription>
               Aggregated soil health data for {aggregatedData?.name || 'the selected country'}.
+              <br />
+              <span className="text-xs text-muted-foreground italic">(Note: Displayed data is for demonstration purposes only.)</span>
             </SheetDescription>
           </SheetHeader>
           {aggregatedData ? (
             <div className="space-y-4">
               <Card>
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-2 pt-4">
                   <CardTitle className="text-lg flex items-center"><MapPin className="mr-2 h-5 w-5 text-primary" /> Sample Count</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="pb-4">
                   <p className="text-3xl font-bold">{aggregatedData.sampleCount}</p>
                   <p className="text-sm text-muted-foreground">Total samples recorded.</p>
                 </CardContent>
               </Card>
 
-              {aggregatedData.sampleCount > 0 ? (
-                <>
-                  {aggregatedData.avgVessScore !== null && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-lg flex items-center"><Leaf className="mr-2 h-5 w-5 text-green-600" />Avg. VESS Score</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold">{aggregatedData.avgVessScore}</p>
-                        <p className="text-sm text-muted-foreground">(1=Poor, 5=Excellent)</p>
-                      </CardContent>
-                    </Card>
-                  )}
-                  
-                  {(aggregatedData.avgSandPercent !== null || aggregatedData.avgClayPercent !== null || aggregatedData.avgSiltPercent !== null) && (
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-lg flex items-center"><BarChart2 className="mr-2 h-5 w-5 text-orange-500" />Avg. Soil Composition</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        {aggregatedData.avgSandPercent !== null && <p><Layers className="inline mr-1 h-4 w-4 text-yellow-600" />Sand: {aggregatedData.avgSandPercent}%</p>}
-                        {aggregatedData.avgClayPercent !== null && <p><Wind className="inline mr-1 h-4 w-4 text-red-700" />Clay: {aggregatedData.avgClayPercent}%</p>}
-                        {aggregatedData.avgSiltPercent !== null && <p><TrendingUp className="inline mr-1 h-4 w-4 text-gray-500" />Silt: {aggregatedData.avgSiltPercent}%</p>}
-                      </CardContent>
-                    </Card>
-                  )}
+              {aggregatedData.avgVessScore !== null && (
+                <Card>
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="text-lg flex items-center"><Leaf className="mr-2 h-5 w-5 text-green-600" />Avg. VESS Score</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pb-4">
+                    <p className="text-3xl font-bold">{aggregatedData.avgVessScore}</p>
+                    <p className="text-sm text-muted-foreground">(1=Poor, 5=Excellent)</p>
+                  </CardContent>
+                </Card>
+              )}
+              
+              {(aggregatedData.avgSandPercent !== null || aggregatedData.avgClayPercent !== null || aggregatedData.avgSiltPercent !== null) && (
+                <Card>
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="text-lg flex items-center"><BarChart2 className="mr-2 h-5 w-5 text-orange-500" />Avg. Soil Composition</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1 pb-4">
+                    {aggregatedData.avgSandPercent !== null && <p className="text-sm"><Layers className="inline mr-1.5 h-4 w-4 text-yellow-600" />Sand: <span className="font-semibold">{aggregatedData.avgSandPercent}%</span></p>}
+                    {aggregatedData.avgClayPercent !== null && <p className="text-sm"><Wind className="inline mr-1.5 h-4 w-4 text-red-700" />Clay: <span className="font-semibold">{aggregatedData.avgClayPercent}%</span></p>}
+                    {aggregatedData.avgSiltPercent !== null && <p className="text-sm"><TrendingUp className="inline mr-1.5 h-4 w-4 text-gray-500" />Silt: <span className="font-semibold">{aggregatedData.avgSiltPercent}%</span></p>}
+                  </CardContent>
+                </Card>
+              )}
 
-                  {aggregatedData.avgTawPercent !== null && (
-                     <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-lg flex items-center"><Droplets className="mr-2 h-5 w-5 text-blue-500" />Avg. Total Available Water</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <p className="text-3xl font-bold">{aggregatedData.avgTawPercent}%</p>
-                         <p className="text-sm text-muted-foreground">Estimated water plant can use.</p>
-                      </CardContent>
-                    </Card>
-                  )}
-                </>
-              ) : (
+              {aggregatedData.avgTawPercent !== null && (
+                 <Card>
+                  <CardHeader className="pb-2 pt-4">
+                    <CardTitle className="text-lg flex items-center"><Droplets className="mr-2 h-5 w-5 text-blue-500" />Avg. Total Available Water</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pb-4">
+                    <p className="text-3xl font-bold">{aggregatedData.avgTawPercent}%</p>
+                     <p className="text-sm text-muted-foreground">Estimated water plant can use.</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {aggregatedData.sampleCount === 0 && ( // Only show if sampleCount from mock is 0 or if we decide to not mock it.
                 <div className="text-center py-8">
                   <HelpCircle className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
                   <p className="text-muted-foreground">No soil data available for {aggregatedData.name}.</p>
                 </div>
               )}
+
             </div>
           ) : (
             <div className="text-center py-8">
