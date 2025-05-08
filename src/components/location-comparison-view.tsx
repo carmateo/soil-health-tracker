@@ -282,44 +282,76 @@ export function LocationComparisonView() {
     const entriesForLocation = userSoilData.filter(
       (entry) => getLocationKeyAndName(entry).key === selectedUserLocationKey
     );
-
     if (!entriesForLocation.length) return null;
 
-    // Get the most recent entry for this location, regardless of type
-    const latestEntry = entriesForLocation.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0];
+    // Find latest VESS entry
+    const vessEntries = entriesForLocation.filter(e => e.measurementType === 'vess');
+    const latestVessEntry = vessEntries.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0] || null;
 
-    if (!latestEntry) return null;
+    // Find latest Composition entry
+    const compositionEntries = entriesForLocation.filter(e => e.measurementType === 'composition');
+    const latestCompositionEntry = compositionEntries.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0] || null;
 
-    // Construct the object to be passed to RadarChartComparison.
-    // It should include all fields from SoilData and id, plus an optional tawPercent.
-    // Initialize all specific metrics to null first.
+    if (!latestVessEntry && !latestCompositionEntry) return null;
+
+    let representativeEntryForBaseDetails: (SoilData & { id: string }) | null = null;
+    if (latestVessEntry && latestCompositionEntry) {
+        representativeEntryForBaseDetails = latestVessEntry.date.toDate().getTime() >= latestCompositionEntry.date.toDate().getTime() 
+                                            ? latestVessEntry 
+                                            : latestCompositionEntry;
+    } else {
+        representativeEntryForBaseDetails = latestVessEntry || latestCompositionEntry;
+    }
+
+    // Ensure representativeEntryForBaseDetails is not null before proceeding
+     if (!representativeEntryForBaseDetails) {
+        // This case should ideally not be hit if !latestVessEntry && !latestCompositionEntry was handled
+        return null; 
+    }
+    
     const returnData: LocationDataType = {
-      ...latestEntry, // Spread all properties from latestEntry
-      id: latestEntry.id, // Ensure id is present
-      // Explicitly set metrics based on measurementType, others will be null
+      // Spread common properties from the more recent/available representative entry
+      ...representativeEntryForBaseDetails,
+      // Explicitly set metrics, which might override spread values if they existed on representativeEntry
       vessScore: null,
       sandPercent: null,
       clayPercent: null,
       siltPercent: null,
-      tawPercent: null, // Initialize TAW, will be calculated if applicable
+      tawPercent: null,
     };
+    
+    // Assign specific ID from representative entry
+    returnData.id = representativeEntryForBaseDetails.id;
 
-    if (latestEntry.measurementType === 'vess') {
-      returnData.vessScore = latestEntry.vessScore ?? null;
-    } else if (latestEntry.measurementType === 'composition') {
-      returnData.sandPercent = latestEntry.sandPercent ?? null;
-      returnData.clayPercent = latestEntry.clayPercent ?? null;
-      returnData.siltPercent = latestEntry.siltPercent ?? null;
+
+    if (latestVessEntry) {
+      returnData.vessScore = latestVessEntry.vessScore ?? null;
+    }
+
+    if (latestCompositionEntry) {
+      returnData.sandPercent = latestCompositionEntry.sandPercent ?? null;
+      returnData.clayPercent = latestCompositionEntry.clayPercent ?? null;
+      returnData.siltPercent = latestCompositionEntry.siltPercent ?? null;
       
       let calculatedTaw: number | null = null;
-      // Ensure clayPercent and sandPercent are valid numbers before calculation
-      if (typeof latestEntry.clayPercent === 'number' && typeof latestEntry.sandPercent === 'number') {
-        const properties = calculateSoilProperties(latestEntry.clayPercent, latestEntry.sandPercent);
+      if (typeof latestCompositionEntry.clayPercent === 'number' && typeof latestCompositionEntry.sandPercent === 'number') {
+        const properties = calculateSoilProperties(latestCompositionEntry.clayPercent, latestCompositionEntry.sandPercent);
         if (properties && typeof properties.availableWater === 'number') {
           calculatedTaw = properties.availableWater;
         }
       }
       returnData.tawPercent = calculatedTaw;
+    }
+    
+    // Determine an appropriate 'measurementType' for the combined data for clarity, if needed
+    // This field isn't critical for the radar chart's metric plotting itself.
+    if (latestVessEntry && !latestCompositionEntry) {
+        returnData.measurementType = 'vess';
+    } else if (!latestVessEntry && latestCompositionEntry) {
+        returnData.measurementType = 'composition';
+    } else if (latestVessEntry && latestCompositionEntry) {
+        // Both exist, could be 'mixed' or prioritize based on recency of representative
+        returnData.measurementType = representativeEntryForBaseDetails.measurementType;
     }
     
     return returnData;
