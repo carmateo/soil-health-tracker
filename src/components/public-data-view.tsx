@@ -1,5 +1,4 @@
 
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -213,10 +212,10 @@ export function PublicDataView() {
     });
   }, [publicData, selectedUserId, selectedLocationKey, viewMode]);
 
-  // Data for the map (all public entries)
+  // Data for the map (all public entries with valid lat/lon)
   const mapData = useMemo(() => {
     if (viewMode !== 'map') return [];
-    return publicData;
+    return publicData.filter(entry => entry.latitude != null && entry.longitude != null);
   }, [publicData, viewMode]);
 
 
@@ -250,7 +249,11 @@ export function PublicDataView() {
   const handleViewModeChange = (mode: 'charts' | 'map') => {
       setViewMode(mode);
       if (mode === 'charts' && !selectedUserId && userIds.length > 0) {
+          // If switching to charts and no user is selected, select the first user
           handleUserChange(userIds[0]);
+      } else if (mode === 'charts' && selectedUserId && !selectedLocationKey && uniqueLocations.length > 0) {
+          // If switching to charts, a user is selected but no location, select first location for that user
+          setSelectedLocationKey(uniqueLocations[0].key);
       }
   };
 
@@ -328,7 +331,7 @@ export function PublicDataView() {
               <SelectTrigger className="w-full sm:w-[300px]">
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-muted-foreground" />
-                  <SelectValue placeholder={selectedUserId ? "Select Location" : "Select User First"} />
+                  <SelectValue placeholder={selectedUserId ? (uniqueLocations.length > 0 ? "Select Location" : "No locations for this user") : "Select User First"} />
                 </div>
               </SelectTrigger>
               <SelectContent>
@@ -388,7 +391,7 @@ export function PublicDataView() {
           ) : (
             // Prompt to select user and location
             <p className="text-center text-muted-foreground py-10">
-                {publicData.length === 0 ? 'No public soil data found overall.' : (selectedUserId ? 'Please select a location for this user.' : 'Please select a user to view their locations and data.')}
+                {publicData.length === 0 ? 'No public soil data found overall.' : (selectedUserId ? (uniqueLocations.length > 0 ? 'Please select a location for this user.' : `No locations found for ${selectedUserDisplay}.`) : 'Please select a user to view their locations and data.')}
             </p>
           )}
         </>
@@ -406,7 +409,7 @@ export function PublicDataView() {
                  </CardHeader>
                  <CardContent>
                     <p className="text-center text-muted-foreground py-10">
-                        No public data found to display on the map.
+                        No public data with GPS coordinates found to display on the map.
                      </p>
                  </CardContent>
             </Card>
