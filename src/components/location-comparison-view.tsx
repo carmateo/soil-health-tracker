@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { AlertTriangle, MapPin, Globe } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Label } from '@/components/ui/label'; // Import Label component
 
 const countriesList = [
   { value: 'AF', label: 'Afghanistan' },
