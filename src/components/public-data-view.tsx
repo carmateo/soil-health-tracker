@@ -125,8 +125,15 @@ export function PublicDataView() {
             console.log("PublicDataView: Processed public data:", fetchedData);
             setPublicData(fetchedData);
 
-            if (viewMode === 'charts' && !selectedUserId && fetchedData.length > 0) {
-                const firstUserId = fetchedData[0].userId;
+            // Auto-selection logic for users and locations
+            const usersForDropdown = Array.from(new Set(fetchedData.map(d => d.userId))).map(uid => ({
+              id: uid,
+              emailPlaceholder: `user_${uid.substring(0, 6)}@example.com`
+            }));
+
+
+            if (viewMode === 'charts' && !selectedUserId && usersForDropdown.length > 0) {
+                const firstUserId = usersForDropdown[0].id;
                 setSelectedUserId(firstUserId);
                 const firstUserLocations = getUniqueLocations(fetchedData.filter(d => d.userId === firstUserId));
                 if (firstUserLocations.length > 0) {
@@ -135,18 +142,28 @@ export function PublicDataView() {
                     setSelectedLocationKey(null);
                 }
             } else if (selectedUserId && selectedLocationKey && viewMode === 'charts') {
-                const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
-                if (!userLocations.some(loc => loc.key === selectedLocationKey)) {
-                    setSelectedLocationKey(userLocations.length > 0 ? userLocations[0].key : null);
+                // Ensure current selection is still valid
+                const userExists = usersForDropdown.some(u => u.id === selectedUserId);
+                if (userExists) {
+                    const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
+                    if (!userLocations.some(loc => loc.key === selectedLocationKey)) {
+                        setSelectedLocationKey(userLocations.length > 0 ? userLocations[0].key : null);
+                    }
+                } else {
+                    // Selected user no longer exists, reset
+                    setSelectedUserId(usersForDropdown.length > 0 ? usersForDropdown[0].id : null);
+                    setSelectedLocationKey(null);
                 }
+
             } else if (selectedUserId && viewMode === 'charts') {
                  const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
                  if (userLocations.length === 0) {
                      setSelectedLocationKey(null);
-                 } else if (!selectedLocationKey) {
+                 } else if (!selectedLocationKey) { // If a user is selected but no location, pick the first for them
                      setSelectedLocationKey(userLocations[0].key);
                  }
             }
+
 
             setLoading(false);
             setError(null);
@@ -175,13 +192,21 @@ export function PublicDataView() {
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db]);
+  }, [db]); // Removed viewMode, selectedUserId, selectedLocationKey from deps, handled inside snapshot
 
-  const userIds = useMemo(() => {
-    const ids = new Set<string>();
-    publicData.forEach(entry => ids.add(entry.userId));
-    return Array.from(ids);
+  const publicUsers = useMemo(() => {
+    const usersMap = new Map<string, { id: string; emailPlaceholder: string }>();
+    publicData.forEach(entry => {
+      if (!usersMap.has(entry.userId)) {
+        usersMap.set(entry.userId, {
+          id: entry.userId,
+          emailPlaceholder: `user_${entry.userId.substring(0, 6)}@example.com`
+        });
+      }
+    });
+    return Array.from(usersMap.values()).sort((a,b) => a.emailPlaceholder.localeCompare(b.emailPlaceholder));
   }, [publicData]);
+
 
   const uniqueLocations = useMemo(() => {
     if (!selectedUserId) return [];
@@ -205,8 +230,9 @@ export function PublicDataView() {
 
   const selectedUserDisplay = useMemo(() => {
     if (!selectedUserId) return 'No User Selected';
-    return `User ${selectedUserId.substring(0, 6)}...`;
-  }, [selectedUserId]);
+    const user = publicUsers.find(u => u.id === selectedUserId);
+    return user ? user.emailPlaceholder : `User ${selectedUserId.substring(0,6)}...`;
+  }, [selectedUserId, publicUsers]);
 
   const selectedLocationDisplay = useMemo(() => {
     if (!selectedLocationKey) return 'No Location Selected';
@@ -226,8 +252,8 @@ export function PublicDataView() {
 
   const handleViewModeChange = (mode: 'charts' | 'map' | 'comparison') => {
       setViewMode(mode);
-      if (mode === 'charts' && !selectedUserId && userIds.length > 0) {
-          handleUserChange(userIds[0]);
+      if (mode === 'charts' && !selectedUserId && publicUsers.length > 0) {
+          handleUserChange(publicUsers[0].id);
       } else if (mode === 'charts' && selectedUserId && !selectedLocationKey && uniqueLocations.length > 0) {
           setSelectedLocationKey(uniqueLocations[0].key);
       }
@@ -276,20 +302,20 @@ export function PublicDataView() {
         <>
           <div className="flex flex-col sm:flex-row gap-4 items-center">
             <Select value={selectedUserId ?? ""} onValueChange={handleUserChange}>
-              <SelectTrigger className="w-full sm:w-[200px]">
+              <SelectTrigger className="w-full sm:w-[250px]"> {/* Adjusted width for email placeholders */}
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-muted-foreground" />
                   <SelectValue placeholder="Select User" />
                 </div>
               </SelectTrigger>
               <SelectContent>
-                {userIds.length === 0 && !loading ? (
+                {publicUsers.length === 0 && !loading ? (
                     <SelectItem value="no-users" disabled>No public users found</SelectItem>
                 ) : (
-                    userIds.map(id => (
-                    <SelectItem key={id} value={id}>
+                    publicUsers.map(user => (
+                    <SelectItem key={user.id} value={user.id}>
                         <div className="flex items-center gap-2">
-                        <span>User {id.substring(0, 6)}...</span>
+                           <span>{user.emailPlaceholder}</span>
                         </div>
                     </SelectItem>
                     ))
@@ -392,3 +418,4 @@ export function PublicDataView() {
      </TooltipProvider>
   );
 }
+
