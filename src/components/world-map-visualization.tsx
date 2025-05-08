@@ -54,7 +54,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             className="w-full h-full bg-card" // map background using card color
             data-ai-hint="world map countries interactive"
           >
-            <ZoomableGroup center={[0, 20]} zoom={1} minZoom={0.75} maxZoom={20}> {/* Increased maxZoom to 20 */}
+            <ZoomableGroup center={[0, 20]} zoom={1} minZoom={0.75} maxZoom={50}> {/* Increased maxZoom to 50 */}
               <Sphere
                 stroke="hsl(var(--border))"
                 fill="hsl(200, 50%, 92%)" // Soft, light blue for water/sphere, more subtle
@@ -97,12 +97,14 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 }
               </Geographies>
               {/* Render markers for specific data points */}
-              {mapMarkers.map(({ id, name, coordinates, locationDetails }) => (
+              {mapMarkers.map(({ id, name, coordinates, locationDetails }, index) => (
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            {/* Brighter, slightly larger marker with a subtle shadow */}
-                            <circle r={3} fill="hsl(var(--primary))" stroke="hsl(var(--primary-foreground))" strokeWidth={0.5} className="transition-all cursor-pointer drop-shadow-sm hover:r-[4px]"/>
+                            {/* Dynamically sized marker based on zoom level - smaller at high zoom */}
+                            <g transform={`scale(${1 / Math.max(1, (typeof document !== 'undefined' && document.querySelector(`[data-zoomable-group]`)?.transform.baseVal[0]?.matrix.a) || 1) * 0.5 + 0.5})`}>
+                                <circle r={3} fill="hsl(var(--primary))" stroke="hsl(var(--primary-foreground))" strokeWidth={0.5} className="transition-all cursor-pointer drop-shadow-sm hover:r-[4px]"/>
+                            </g>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs bg-popover text-popover-foreground rounded-md shadow-lg p-2">
                             <p className="font-semibold text-sm">{name}</p>
