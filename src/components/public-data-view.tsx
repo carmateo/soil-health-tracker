@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -7,7 +6,7 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData,
 import { useFirebase } from '@/context/firebase-context';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, User, MapPin, AreaChart, Map as MapIcon, GitCompareArrows } from 'lucide-react'; // Added GitCompareArrows, aliased Map
+import { AlertTriangle, User, MapPin, AreaChart, MapPinIcon as MapIconLucide, GitCompareArrows } from 'lucide-react'; // Renamed MapPin to MapPinIcon to avoid conflict
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -100,10 +99,15 @@ export function PublicDataView() {
                   return;
               }
 
+              // Determine the email to store: use docData.userEmail if it's a non-empty string, otherwise fallback.
+              const emailToStore = (typeof docData.userEmail === 'string' && docData.userEmail.trim() !== '')
+                                   ? docData.userEmail
+                                   : `user_${userId.substring(0, 6)}@example.com`;
+
               fetchedData.push({
                 id: doc.id,
-                userId: userId, // Use the extracted userId
-                userEmail: docData.userEmail || `user_${userId.substring(0, 6)}@example.com`, // Store email if available
+                userId: userId, 
+                userEmail: emailToStore, // Use the processed email
                 date: date,
                 location: docData.location ?? null,
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
@@ -131,11 +135,10 @@ export function PublicDataView() {
               const userEntry = fetchedData.find(d => d.userId === uid);
               return {
                 id: uid,
-                // Use the actual email if available, otherwise fallback.
-                // Ensure userEmail is part of fetchedData items for this to work.
-                emailPlaceholder: userEntry?.userEmail || `user_${uid.substring(0, 6)}@example.com`
+                // userEmail here is already processed (real email or placeholder)
+                emailPlaceholder: userEntry?.userEmail || `user_${uid.substring(0, 6)}@example.com` 
               }
-            });
+            }).sort((a,b) => a.emailPlaceholder.localeCompare(b.emailPlaceholder));
 
 
             if (viewMode === 'charts' && !selectedUserId && usersForDropdown.length > 0) {
@@ -198,7 +201,7 @@ export function PublicDataView() {
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db]); // Removed viewMode, selectedUserId, selectedLocationKey from deps, handled inside snapshot
+  }, [db]); 
 
   const publicUsers = useMemo(() => {
     const usersMap = new Map<string, { id: string; emailPlaceholder: string }>();
@@ -206,6 +209,7 @@ export function PublicDataView() {
       if (!usersMap.has(entry.userId)) {
         usersMap.set(entry.userId, {
           id: entry.userId,
+          // entry.userEmail here is already the processed email (real or placeholder)
           emailPlaceholder: entry.userEmail || `user_${entry.userId.substring(0, 6)}@example.com`
         });
       }
@@ -295,7 +299,7 @@ export function PublicDataView() {
            </div>
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="map" id="view-map" />
-             <Label htmlFor="view-map" className="flex items-center gap-1 cursor-pointer"><MapIcon className="h-4 w-4" /> World Map View</Label>
+             <Label htmlFor="view-map" className="flex items-center gap-1 cursor-pointer"><MapIconLucide className="h-4 w-4" /> World Map View</Label>
            </div>
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="comparison" id="view-comparison" />
