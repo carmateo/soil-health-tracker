@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -74,25 +75,6 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     }
   }, []);
 
-  const dynamicTranslateExtent = useMemo((): [[number, number], [number, number]] => {
-    const sphereRadius = 147; // from projectionConfig.scale, this is the on-screen radius at zoom 1
-    const { width: mapWidth, height: mapHeight } = mapDimensions;
-
-    // Increase panRange to make panning more flexible.
-    // A factor of 1.0 keeps the sphere mostly on screen.
-    // A factor > 1.0 allows it to be panned further off-center.
-    const panRangeFactor = 1.2; 
-    const panRange = sphereRadius * panRangeFactor;
-
-    // Calculate bounds for the center of the ZoomableGroup
-    const xMin = Math.max(0, mapWidth / 2 - panRange);
-    const xMax = Math.min(mapWidth, mapWidth / 2 + panRange);
-    const yMin = Math.max(0, mapHeight / 2 - panRange);
-    const yMax = Math.min(mapHeight, mapHeight / 2 + panRange);
-    
-    return [[xMin, yMin], [xMax, yMax]];
-  }, [mapDimensions]);
-
 
   const mapMarkers = useMemo(() => {
     return data
@@ -162,11 +144,11 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
               minZoom={1.15}
               maxZoom={12}
-              translateExtent={dynamicTranslateExtent} 
+              // translateExtent removed for free dragging
             >
               <Sphere
                 stroke="hsl(var(--border))"
-                fill="hsl(200, 50%, 75%)" 
+                fill="hsl(200, 50%, 65%)" // Darker blue for ocean
                 strokeWidth={0.3}
                 id="sphere"
                 onClick={() => { handleSheetOpenChange(false); }} 
@@ -208,7 +190,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 }
               </Geographies>
               {mapMarkers.map(({ id, name, coordinates, locationDetails }) => {
-                const pinBaseSize = 3; // Adjusted base size for smaller default pins
+                const pinBaseSize = 2.5; // Slightly smaller base size
                 const pinSize = pinBaseSize / Math.sqrt(currentZoom); 
                 const strokeWidth = 0.5 / Math.sqrt(currentZoom);
 
@@ -332,3 +314,4 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default React.memo(WorldMapVisualization);
 export { WorldMapVisualization };
+
