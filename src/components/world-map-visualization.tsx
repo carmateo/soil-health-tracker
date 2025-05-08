@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 // import { calculateSoilProperties } from '@/lib/soil-calculations'; // Currently unused due to mock data
-import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers3, Wind, Leaf, MapPin as MapPinIcon } from 'lucide-react'; // Changed Sand to Layers3
+import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers3, Wind, Leaf, MapPin as MapPinIcon } from 'lucide-react';
 
 // Use a TopoJSON file that defines country features
 const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
@@ -108,12 +108,12 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
               center={[0, 20]}
               zoom={currentZoom}
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
-              minZoom={1.15} // Adjusted minZoom further to prevent excessive zoom out
+              minZoom={1.15}
               maxZoom={12}
             >
               <Sphere
                 stroke="hsl(var(--border))"
-                fill="hsl(200, 50%, 92%)" // Light blue for water/sphere
+                fill="hsl(200, 50%, 75%)" // Darker blue for water/sphere
                 strokeWidth={0.3}
                 id="sphere"
                 onClick={() => { handleSheetOpenChange(false); }}
@@ -155,21 +155,19 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 }
               </Geographies>
               {mapMarkers.map(({ id, name, coordinates, locationDetails }) => {
-                const pinBaseSize = 8; // Base size of the pin icon
-                const pinSize = pinBaseSize / Math.sqrt(currentZoom); // Adjust size inversely with square root of zoom for smoother scaling
-                const strokeWidth = 1 / Math.sqrt(currentZoom);
+                const pinBaseSize = 7; // Slightly smaller base size for the pin icon
+                const pinSize = pinBaseSize / Math.sqrt(currentZoom);
+                const strokeWidth = 0.8 / Math.sqrt(currentZoom); // Slightly thinner stroke relative to size
 
                 return (
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            {/* Using a simple circle as a pin for now, can be replaced with an SVG icon */}
-                            {/* <circle r={pinSize} fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={strokeWidth} className="transition-all duration-100 ease-out hover:opacity-80 drop-shadow-sm" /> */}
                              <g transform={`translate(${-pinSize / 2}, ${-pinSize})`}>
-                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--card-foreground))" strokeWidth={strokeWidth * 2.5} // Adjust stroke width
+                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={strokeWidth * 2.5}
                                     className="transition-transform duration-150 ease-in-out hover:opacity-80 drop-shadow-sm">
                                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                                    <circle cx="12" cy="10" r={Math.max(1.5, 3 / Math.sqrt(currentZoom))} fill="hsl(var(--accent-foreground))"></circle> {/* Inner circle also scales slightly */}
+                                    <circle cx="12" cy="10" r={Math.max(1.5, 3 / Math.sqrt(currentZoom))} fill="hsl(var(--background))"></circle>
                                 </svg>
                             </g>
                         </TooltipTrigger>
