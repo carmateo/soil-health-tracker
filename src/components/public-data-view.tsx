@@ -1,7 +1,8 @@
 
+
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 // Import collectionGroup directly from firestore
 import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData, QuerySnapshot, collectionGroup } from 'firebase/firestore';
 import { useFirebase } from '@/context/firebase-context';
@@ -212,10 +213,9 @@ export function PublicDataView() {
     });
   }, [publicData, selectedUserId, selectedLocationKey, viewMode]);
 
-  // Data for the map (all public GPS entries)
+  // Data for the map (all public entries)
   const mapData = useMemo(() => {
     if (viewMode !== 'map') return [];
-    // For map, we need all public data, not just GPS entries if we want country counts
     return publicData;
   }, [publicData, viewMode]);
 
@@ -396,25 +396,24 @@ export function PublicDataView() {
 
       {/* Map View */}
       {viewMode === 'map' && (
-          <Card className="bg-card shadow-md border-border">
-             <CardHeader>
-                 <CardTitle>World Map Soil Data</CardTitle>
-                 <CardDescription>Interactive map showing locations of public soil data entries. Hover over a country to see sample counts.</CardDescription>
-             </CardHeader>
-             <CardContent>
-                 {mapData.length > 0 ? (
-                     <WorldMapVisualization data={mapData} />
-                 ) : (
+          mapData.length > 0 ? (
+              <WorldMapVisualization data={mapData} />
+           ) : (
+            <Card className="bg-card shadow-md border-border">
+                 <CardHeader>
+                     <CardTitle>World Map Soil Data</CardTitle>
+                     <CardDescription>Interactive map showing locations of public soil data entries.</CardDescription>
+                 </CardHeader>
+                 <CardContent>
                     <p className="text-center text-muted-foreground py-10">
                         No public data found to display on the map.
                      </p>
-                 )}
-             </CardContent>
-         </Card>
+                 </CardContent>
+            </Card>
+           )
       )}
 
     </div>
      </TooltipProvider>
   );
 }
-
