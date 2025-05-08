@@ -283,26 +283,48 @@ export function LocationComparisonView() {
       (entry) => getLocationKeyAndName(entry).key === selectedUserLocationKey
     );
 
-    // Filter for 'composition' type entries and get the latest one
-    const compositionEntries = entriesForLocation.filter(entry => entry.measurementType === 'composition');
-    if (!compositionEntries.length) return null; // No composition data for this location
+    if (!entriesForLocation.length) return null;
 
-    const latestCompositionEntry = compositionEntries.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0];
+    // Get the most recent entry for this location, regardless of type
+    const latestEntry = entriesForLocation.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0];
 
-    let tawPercent: number | null = null;
-    // Ensure we are working with a composition entry for TAW calculation
-    if (latestCompositionEntry.measurementType === 'composition' && latestCompositionEntry.clayPercent != null && latestCompositionEntry.sandPercent != null) {
-      const properties = calculateSoilProperties(latestCompositionEntry.clayPercent, latestCompositionEntry.sandPercent);
-      if (properties) {
-        tawPercent = properties.availableWater;
+    if (!latestEntry) return null;
+
+    // Construct the object to be passed to RadarChartComparison.
+    // It should include all fields from SoilData and id, plus an optional tawPercent.
+    // Initialize all specific metrics to null first.
+    const returnData: LocationDataType = {
+      ...latestEntry, // Spread all properties from latestEntry
+      id: latestEntry.id, // Ensure id is present
+      // Explicitly set metrics based on measurementType, others will be null
+      vessScore: null,
+      sandPercent: null,
+      clayPercent: null,
+      siltPercent: null,
+      tawPercent: null, // Initialize TAW, will be calculated if applicable
+    };
+
+    if (latestEntry.measurementType === 'vess') {
+      returnData.vessScore = latestEntry.vessScore ?? null;
+    } else if (latestEntry.measurementType === 'composition') {
+      returnData.sandPercent = latestEntry.sandPercent ?? null;
+      returnData.clayPercent = latestEntry.clayPercent ?? null;
+      returnData.siltPercent = latestEntry.siltPercent ?? null;
+      
+      let calculatedTaw: number | null = null;
+      // Ensure clayPercent and sandPercent are valid numbers before calculation
+      if (typeof latestEntry.clayPercent === 'number' && typeof latestEntry.sandPercent === 'number') {
+        const properties = calculateSoilProperties(latestEntry.clayPercent, latestEntry.sandPercent);
+        if (properties && typeof properties.availableWater === 'number') {
+          calculatedTaw = properties.availableWater;
+        }
       }
+      returnData.tawPercent = calculatedTaw;
     }
     
-    return {
-      ...latestCompositionEntry, // This is now guaranteed to be a composition entry or null
-      tawPercent: tawPercent, 
-    };
+    return returnData;
   }, [selectedUserLocationKey, userSoilData]);
+
 
   const simulatedCountryData = useMemo(() => {
     if (!selectedCountry) return null;
@@ -414,10 +436,10 @@ export function LocationComparisonView() {
               />
             </div>
           )}
-           {/* Placeholder if selections are made but location data is missing (e.g., no composition data for selected location) */}
-           {selectedUserLocationKey && selectedCountry && !selectedLocationSoilData && !loadingUserSoilData &&(
+           {/* Placeholder if selections are made but location data is missing or not of the expected type */}
+           {selectedUserLocationKey && selectedCountry && !selectedLocationSoilData && !loadingUserSoilData && (
                 <p className="text-muted-foreground text-center py-10">
-                    No soil composition data found for the selected location to compare. Please ensure a 'Composition' type entry exists.
+                    No data found for the selected location, or the latest entry does not contain the required metrics for comparison. Please ensure an entry with VESS score or Soil Composition percentages exists.
                 </p>
             )}
         </CardContent>
