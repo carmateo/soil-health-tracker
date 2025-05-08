@@ -8,19 +8,16 @@ import { calculateSoilProperties } from '@/lib/soil-calculations';
 
 interface RadarChartDataPoint {
   subject: string;
-  locationValue: number | null; // Still allow null initially for filtering logic
-  averageValue: number | null; // Still allow null initially for filtering logic
+  locationValue: number | null;
+  averageValue: number | null;
   fullMark: number;
 }
 
-// Define a more specific type for locationData prop
-// It should be a SoilData object, with an optional, pre-calculated tawPercent
 export type LocationDataType = SoilData & { id: string; tawPercent?: number | null };
 
-
 interface RadarChartComparisonProps {
-  locationData: LocationDataType | null; // User's specific location data
-  countryAverageData: { // Simulated country average data
+  locationData: LocationDataType | null;
+  countryAverageData: {
     vessScore: number | null;
     sandPercent: number | null;
     clayPercent: number | null;
@@ -59,64 +56,75 @@ export function RadarChartComparison({
     );
   }
   
-  let finalLocationDataForChart: LocationDataType | null = null;
+  // Prepare a structure that definitively holds the values for the location based on its type
+  let preparedLocationMetrics: {
+    vessScore: number | null;
+    sandPercent: number | null;
+    clayPercent: number | null;
+    siltPercent: number | null;
+    tawPercent: number | null;
+  } | null = null;
+
   if (locationData) {
-    finalLocationDataForChart = { ...locationData };
-    if (
-        finalLocationDataForChart.measurementType === 'composition' &&
-        finalLocationDataForChart.tawPercent === undefined && 
-        finalLocationDataForChart.clayPercent != null &&
-        finalLocationDataForChart.sandPercent != null
-    ) {
-        const properties = calculateSoilProperties(finalLocationDataForChart.clayPercent, finalLocationDataForChart.sandPercent);
-        if (properties) {
-            finalLocationDataForChart.tawPercent = properties.availableWater;
-        }
+    if (locationData.measurementType === 'vess') {
+      preparedLocationMetrics = {
+        vessScore: locationData.vessScore ?? null,
+        sandPercent: null,
+        clayPercent: null,
+        siltPercent: null,
+        tawPercent: null,
+      };
+    } else if (locationData.measurementType === 'composition') {
+      // TAW should already be on locationData if calculable, as per LocationComparisonView logic
+      preparedLocationMetrics = {
+        vessScore: null, // VESS score is null for composition type
+        sandPercent: locationData.sandPercent ?? null,
+        clayPercent: locationData.clayPercent ?? null,
+        siltPercent: locationData.siltPercent ?? null,
+        tawPercent: locationData.tawPercent !== undefined ? locationData.tawPercent : null, // Use pre-calculated TAW or null
+      };
     }
   }
 
-  // Prepare data points, defaulting nulls to 0 *after* normalization if the series itself is present
-  // This ensures shapes are drawn.
   const rawChartPoints = [
     {
       subject: 'VESS Score',
-      locationVal: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.vessScore, 5) : null,
+      locationVal: preparedLocationMetrics ? normalizeValue(preparedLocationMetrics.vessScore, 5) : null,
       averageVal: countryAverageData ? normalizeValue(countryAverageData.vessScore, 5) : null,
       fullMark: 5,
     },
     {
       subject: 'Sand %',
-      locationVal: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.sandPercent, 100) : null,
+      locationVal: preparedLocationMetrics ? normalizeValue(preparedLocationMetrics.sandPercent, 100) : null,
       averageVal: countryAverageData ? normalizeValue(countryAverageData.sandPercent, 100) : null,
       fullMark: 100,
     },
     {
       subject: 'Clay %',
-      locationVal: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.clayPercent, 100) : null,
+      locationVal: preparedLocationMetrics ? normalizeValue(preparedLocationMetrics.clayPercent, 100) : null,
       averageVal: countryAverageData ? normalizeValue(countryAverageData.clayPercent, 100) : null,
       fullMark: 100,
     },
     {
       subject: 'Silt %',
-      locationVal: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.siltPercent, 100) : null,
+      locationVal: preparedLocationMetrics ? normalizeValue(preparedLocationMetrics.siltPercent, 100) : null,
       averageVal: countryAverageData ? normalizeValue(countryAverageData.siltPercent, 100) : null,
       fullMark: 100,
     },
     {
       subject: 'TAW %',
-      locationVal: finalLocationDataForChart ? normalizeValue(finalLocationDataForChart.tawPercent, 50) : null,
+      locationVal: preparedLocationMetrics ? normalizeValue(preparedLocationMetrics.tawPercent, 50) : null,
       averageVal: countryAverageData ? normalizeValue(countryAverageData.tawPercent, 50) : null,
       fullMark: 50,
     },
   ];
 
   const chartData: RadarChartDataPoint[] = rawChartPoints
-    .filter(item => item.locationVal !== null || item.averageVal !== null) // Keep if at least one original value exists for the subject
+    .filter(item => item.locationVal !== null || item.averageVal !== null)
     .map(item => ({
         subject: item.subject,
-        // Default to 0 if locationData is present but specific metric is null
         locationValue: locationData ? (item.locationVal ?? 0) : null, 
-        averageValue: item.averageVal ?? 0, // Country average also defaults to 0 if null
+        averageValue: item.averageVal ?? 0,
         fullMark: item.fullMark,
     }));
 
@@ -126,11 +134,12 @@ export function RadarChartComparison({
       <Card className="bg-card shadow-md border-border">
         <CardHeader>
           <CardTitle>Soil Data Comparison</CardTitle>
-          <CardDescription>Comparing {locationName} with {countryName}.</CardDescription>
+          <CardDescription>Comparing {locationData ? locationName : 'N/A'} with {countryName}.</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground text-center py-10">
             Insufficient data for comparison. Ensure VESS score or composition percentages are available.
+            {!locationData && countryAverageData && <span> Country average data is available.</span>}
           </p>
         </CardContent>
       </Card>
@@ -138,12 +147,11 @@ export function RadarChartComparison({
   }
   
   const summaryItems = chartData.map(item => {
-    // Use original values (locationVal, averageVal) for summary calculation before they are defaulted to 0 for plotting
-    const originalLocationItem = rawChartPoints.find(p => p.subject === item.subject);
-    if (!originalLocationItem || originalLocationItem.locationVal === null || originalLocationItem.averageVal === null) return null;
+    const originalLocationPoint = rawChartPoints.find(p => p.subject === item.subject);
+    if (!originalLocationPoint || originalLocationPoint.locationVal === null || originalLocationPoint.averageVal === null) return null;
     
-    const difference = originalLocationItem.locationVal - originalLocationItem.averageVal;
-    const percentageDifference = originalLocationItem.averageVal !== 0 ? (difference / originalLocationItem.averageVal) * 100 : (difference > 0 ? 100 : (difference < 0 ? -100 : 0));
+    const difference = originalLocationPoint.locationVal - originalLocationPoint.averageVal;
+    const percentageDifference = originalLocationPoint.averageVal !== 0 ? (difference / originalLocationPoint.averageVal) * 100 : (difference > 0 ? 100 : (difference < 0 ? -100 : 0));
     
     let comparisonText = "similar to average";
     if (percentageDifference > 10) comparisonText = `${Math.abs(percentageDifference).toFixed(0)}% above average`;
@@ -152,8 +160,8 @@ export function RadarChartComparison({
     const unit = item.subject === 'VESS Score' ? '' : '%';
     return {
       subject: item.subject,
-      locationValueFormatted: originalLocationItem.locationVal.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
-      averageValueFormatted: originalLocationItem.averageVal.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
+      locationValueFormatted: originalLocationPoint.locationVal.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
+      averageValueFormatted: originalLocationPoint.averageVal.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
       comparisonText
     };
   }).filter(Boolean);
@@ -176,7 +184,8 @@ export function RadarChartComparison({
               <PolarAngleAxis dataKey="subject" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
               <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
               
-              {locationData && (
+              {/* Render location radar only if locationData (and thus preparedLocationMetrics) is present */}
+              {preparedLocationMetrics && (
                 <Radar 
                   name={locationName} 
                   dataKey="locationValue" 
@@ -204,13 +213,18 @@ export function RadarChartComparison({
                 }}
                 formatter={(value: number, name: string, entry) => {
                     const unit = entry.payload.subject === 'VESS Score' ? '' : '%';
-                    // Find the original non-defaulted value for tooltip if possible
                     const rawPoint = rawChartPoints.find(p => p.subject === entry.payload.subject);
-                    let displayValue: number | null = value;
-                    if (name === locationName && rawPoint) displayValue = rawPoint.locationVal;
-                    if (name === countryName && rawPoint) displayValue = rawPoint.averageVal;
+                    let displayValue: number | null = value; // Fallback to the value Recharts provides
+                    
+                    if (rawPoint) { // Check if rawPoint exists
+                        if (name === locationName) {
+                            displayValue = rawPoint.locationVal;
+                        } else if (name === countryName) {
+                            displayValue = rawPoint.averageVal;
+                        }
+                    }
 
-                    return displayValue !== null ? [`${displayValue?.toFixed(1)}${unit}`, name] : [`N/A`, name];
+                    return displayValue !== null && displayValue !== undefined ? [`${displayValue.toFixed(entry.payload.subject === 'VESS Score' ? 1:0)}${unit}`, name] : [`N/A`, name];
                 }}
                />
             </RadarChart>
@@ -218,7 +232,7 @@ export function RadarChartComparison({
         </CardContent>
       </Card>
       
-      {locationData && summaryItems.length > 0 && (
+      {preparedLocationMetrics && summaryItems.length > 0 && (
         <Card>
             <CardHeader>
                 <CardTitle>Comparison Summary</CardTitle>
@@ -234,10 +248,12 @@ export function RadarChartComparison({
             </CardContent>
         </Card>
       )}
-       {locationData && summaryItems.length === 0 && (
+       {preparedLocationMetrics && summaryItems.length === 0 && (
          <p className="text-muted-foreground text-center text-sm">Not enough overlapping data points for a detailed summary between your location and the country average.</p>
+       )}
+       {!preparedLocationMetrics && countryAverageData && (
+            <p className="text-muted-foreground text-center text-sm mt-4">Select one of your locations to compare its data against {countryName}.</p>
        )}
     </div>
   );
 }
-
