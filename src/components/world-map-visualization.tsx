@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, memo } from 'react';
@@ -15,8 +16,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-// Use a TopoJSON file that defines land features for continents
-const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/land-110m.json';
+// Use a TopoJSON file that defines country features
+const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json'; // Changed from land-110m.json to countries-110m.json
 
 interface WorldMapVisualizationProps {
   data: Array<SoilData & { id: string }>; // Data for markers
@@ -53,9 +54,9 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             width={800}
             height={400}
             className="w-full h-auto max-h-[500px] rounded-md bg-background"
-            data-ai-hint="world map landmasses interactive"
+            data-ai-hint="world map countries interactive"
           >
-            <ZoomableGroup center={[0, 20]} zoom={1} filterZoom={false}>
+            <ZoomableGroup center={[0, 20]} zoom={1}> {/* filterZoom removed as it's not a valid prop */}
               <Sphere
                 stroke="hsl(var(--border))"
                 fill="hsl(210, 60%, 95%)" // Light blue fill for water/sphere
@@ -72,24 +73,26 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                       style={{
                         default: {
                           fill: 'hsl(var(--muted))', // Land color (beige)
+                          stroke: 'hsl(var(--foreground)/0.5)', // Country border color
+                          strokeWidth: 0.25, // Thinner stroke for country borders
                           outline: 'none',
-                          stroke: 'hsl(var(--foreground)/0.3)', // Light border for land features
-                          strokeWidth: 0.2,
                         },
                         hover: {
                           fill: 'hsl(var(--muted)/0.8)', // Slightly darker land on hover
+                          stroke: 'hsl(var(--primary))', // Highlight border on hover
+                          strokeWidth: 0.5,
                           outline: 'none',
-                          stroke: 'hsl(var(--foreground)/0.5)',
-                          strokeWidth: 0.3,
                         },
                         pressed: {
                           fill: 'hsl(var(--muted)/0.7)',
+                          stroke: 'hsl(var(--primary))',
+                          strokeWidth: 0.5,
                           outline: 'none',
                         },
                       }}
                       className={cn(
                         "transition-colors duration-100 ease-in-out",
-                        "focus:outline-none" // Removed ring as it might not be suitable for landmasses
+                        "focus:outline-none"
                       )}
                     />
                   ))
@@ -123,3 +126,4 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default memo(WorldMapVisualization);
 export { WorldMapVisualization };
+
