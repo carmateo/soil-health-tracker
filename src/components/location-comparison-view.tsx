@@ -7,12 +7,15 @@ import { useFirebase } from '@/context/firebase-context';
 import { collection, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore';
 import type { SoilData } from '@/types/soil';
 import { getLocationKeyAndName, getUniqueLocations } from '@/lib/location-utils';
+import { calculateSoilProperties } from '@/lib/soil-calculations';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { AlertTriangle, MapPin, Globe } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Label } from '@/components/ui/label'; // Import Label component
+import { Label } from '@/components/ui/label';
+import { RadarChartComparison } from '@/components/radar-chart-comparison';
+
 
 const countriesList = [
   { value: 'AF', label: 'Afghanistan' },
@@ -234,11 +237,9 @@ export function LocationComparisonView() {
         (querySnapshot) => {
           const fetchedData: Array<SoilData & { id: string }> = [];
           querySnapshot.forEach((doc) => {
-            // Basic validation, similar to dashboard
             const docData = doc.data();
             let date = docData.date;
             if (!(date instanceof Timestamp)) {
-                // Attempt conversion or skip
                 try {
                     let potentialDate;
                     if (typeof docData.date === 'object' && docData.date !== null && 'seconds' in docData.date) {
@@ -247,9 +248,9 @@ export function LocationComparisonView() {
                         potentialDate = new Date(docData.date);
                     }
                     date = Timestamp.fromDate(potentialDate);
-                } catch (e) { return; } // Skip if conversion fails
+                } catch (e) { return; } 
             }
-            if (!docData.measurementType) return; // Skip if no type
+            if (!docData.measurementType) return; 
 
             fetchedData.push({ ...docData, id: doc.id, date } as SoilData & { id: string });
           });
@@ -273,6 +274,55 @@ export function LocationComparisonView() {
     if (!user || userSoilData.length === 0) return [];
     return getUniqueLocations(userSoilData);
   }, [userSoilData, user]);
+
+  const selectedLocationSoilData = useMemo(() => {
+    if (!selectedUserLocationKey || !userSoilData.length) return null;
+
+    const entriesForLocation = userSoilData.filter(
+      (entry) => getLocationKeyAndName(entry).key === selectedUserLocationKey
+    );
+    if (!entriesForLocation.length) return null;
+
+    const latestEntry = entriesForLocation.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0];
+
+    let tawPercent: number | null = null;
+    if (latestEntry.measurementType === 'composition' && latestEntry.clayPercent != null && latestEntry.sandPercent != null) {
+      const properties = calculateSoilProperties(latestEntry.clayPercent, latestEntry.sandPercent);
+      if (properties) {
+        tawPercent = properties.availableWater;
+      }
+    }
+    return {
+      ...latestEntry,
+      tawPercent: tawPercent,
+    };
+  }, [selectedUserLocationKey, userSoilData]);
+
+  const simulatedCountryData = useMemo(() => {
+    if (!selectedCountry) return null;
+    let hash = 0;
+    for (let i = 0; i < selectedCountry.length; i++) {
+      const char = selectedCountry.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash |= 0; 
+    }
+    const random = (seedModifier: number) => {
+      const x = Math.sin(hash + seedModifier) * 10000;
+      return x - Math.floor(x);
+    };
+    const sandP = parseFloat((random(2) * 50 + 20).toFixed(1));
+    const clayP = parseFloat((random(3) * 30 + 10).toFixed(1));
+    const siltP = parseFloat(Math.max(0, 100 - sandP - clayP).toFixed(1));
+
+    return {
+      vessScore: parseFloat((random(1) * 3.5 + 1.5).toFixed(1)),
+      sandPercent: sandP,
+      clayPercent: clayP,
+      siltPercent: siltP,
+      tawPercent: parseFloat((random(4) * 15 + 5).toFixed(1)), 
+    };
+  }, [selectedCountry]);
+
 
   return (
     <TooltipProvider>
@@ -347,14 +397,14 @@ export function LocationComparisonView() {
             </div>
           </div>
 
-          {/* Placeholder for future radar chart and summary */}
-          {selectedUserLocationKey && selectedCountry && (
+          {selectedUserLocationKey && selectedCountry && selectedLocationSoilData && simulatedCountryData && (
             <div className="mt-8 pt-6 border-t border-border">
-              <h3 className="text-lg font-semibold mb-4">Comparison Results</h3>
-              <p className="text-muted-foreground">
-                Radar chart and summary comparing your location with {countriesList.find(c => c.value === selectedCountry)?.label || 'the selected country'} will be displayed here.
-              </p>
-              {/* Radar chart and summary will go here */}
+              <RadarChartComparison
+                locationData={selectedLocationSoilData}
+                countryAverageData={simulatedCountryData}
+                locationName={userLocations.find(loc => loc.key === selectedUserLocationKey)?.name || "Your Location"}
+                countryName={countriesList.find(c => c.value === selectedCountry)?.label || "Selected Country"}
+              />
             </div>
           )}
         </CardContent>
