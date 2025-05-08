@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -99,15 +100,10 @@ export function PublicDataView() {
                   return;
               }
 
-              // Determine the email to store: use docData.userEmail if it's a non-empty string, otherwise fallback.
-              const emailToStore = (typeof docData.userEmail === 'string' && docData.userEmail.trim() !== '')
-                                   ? docData.userEmail
-                                   : `user_${userId.substring(0, 6)}@example.com`;
-
               fetchedData.push({
                 id: doc.id,
                 userId: userId, 
-                userEmail: emailToStore, // Use the processed email
+                userEmail: docData.userEmail || `user_${userId.substring(0, 6)}@example.com`, // Keep for potential future use, but not for display label
                 date: date,
                 location: docData.location ?? null,
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
@@ -131,14 +127,11 @@ export function PublicDataView() {
             setPublicData(fetchedData);
 
             // Auto-selection logic for users and locations
-            const usersForDropdown = Array.from(new Set(fetchedData.map(d => d.userId))).map(uid => {
-              const userEntry = fetchedData.find(d => d.userId === uid);
-              return {
+            const uniqueUserIds = Array.from(new Set(fetchedData.map(d => d.userId))).sort();
+            const usersForDropdown = uniqueUserIds.map((uid, index) => ({
                 id: uid,
-                // userEmail here is already processed (real email or placeholder)
-                emailPlaceholder: userEntry?.userEmail || `user_${uid.substring(0, 6)}@example.com` 
-              }
-            }).sort((a,b) => a.emailPlaceholder.localeCompare(b.emailPlaceholder));
+                displayLabel: `User ${index + 1}`
+            }));
 
 
             if (viewMode === 'charts' && !selectedUserId && usersForDropdown.length > 0) {
@@ -161,15 +154,21 @@ export function PublicDataView() {
                 } else {
                     // Selected user no longer exists, reset
                     setSelectedUserId(usersForDropdown.length > 0 ? usersForDropdown[0].id : null);
-                    setSelectedLocationKey(null);
+                    setSelectedLocationKey(null); // Reset location as well
+                     if (usersForDropdown.length > 0) { // if there are users, select the first one's first location
+                        const firstUserLocations = getUniqueLocations(fetchedData.filter(d => d.userId === usersForDropdown[0].id));
+                        if (firstUserLocations.length > 0) {
+                            setSelectedLocationKey(firstUserLocations[0].key);
+                        }
+                    }
                 }
 
-            } else if (selectedUserId && viewMode === 'charts') {
+            } else if (selectedUserId && viewMode === 'charts') { // User is selected, but maybe no location or location became invalid
                  const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
-                 if (userLocations.length === 0) {
+                 if (userLocations.length === 0) { // No locations for this user
                      setSelectedLocationKey(null);
-                 } else if (!selectedLocationKey) { // If a user is selected but no location, pick the first for them
-                     setSelectedLocationKey(userLocations[0].key);
+                 } else if (!selectedLocationKey || !userLocations.some(loc => loc.key === selectedLocationKey)) { // No location selected OR selected location is no longer valid
+                     setSelectedLocationKey(userLocations[0].key); // Select the first available for this user
                  }
             }
 
@@ -204,17 +203,11 @@ export function PublicDataView() {
   }, [db]); 
 
   const publicUsers = useMemo(() => {
-    const usersMap = new Map<string, { id: string; emailPlaceholder: string }>();
-    publicData.forEach(entry => {
-      if (!usersMap.has(entry.userId)) {
-        usersMap.set(entry.userId, {
-          id: entry.userId,
-          // entry.userEmail here is already the processed email (real or placeholder)
-          emailPlaceholder: entry.userEmail || `user_${entry.userId.substring(0, 6)}@example.com`
-        });
-      }
-    });
-    return Array.from(usersMap.values()).sort((a,b) => a.emailPlaceholder.localeCompare(b.emailPlaceholder));
+    const uniqueUserIds = Array.from(new Set(publicData.map(d => d.userId))).sort();
+    return uniqueUserIds.map((uid, index) => ({
+        id: uid,
+        displayLabel: `User ${index + 1}`
+    }));
   }, [publicData]);
 
 
@@ -241,7 +234,7 @@ export function PublicDataView() {
   const selectedUserDisplay = useMemo(() => {
     if (!selectedUserId) return 'No User Selected';
     const user = publicUsers.find(u => u.id === selectedUserId);
-    return user ? user.emailPlaceholder : `User ${selectedUserId.substring(0,6)}...`;
+    return user ? user.displayLabel : `User ID ${selectedUserId.substring(0,6)}...`;
   }, [selectedUserId, publicUsers]);
 
   const selectedLocationDisplay = useMemo(() => {
@@ -312,7 +305,7 @@ export function PublicDataView() {
         <>
           <div className="flex flex-col sm:flex-row gap-4 items-center">
             <Select value={selectedUserId ?? ""} onValueChange={handleUserChange}>
-              <SelectTrigger className="w-full sm:w-[250px]"> {/* Adjusted width for email placeholders */}
+              <SelectTrigger className="w-full sm:w-[200px]"> 
                 <div className="flex items-center gap-2">
                   <User className="h-4 w-4 text-muted-foreground" />
                   <SelectValue placeholder="Select User" />
@@ -325,7 +318,7 @@ export function PublicDataView() {
                     publicUsers.map(user => (
                     <SelectItem key={user.id} value={user.id}>
                         <div className="flex items-center gap-2">
-                           <span>{user.emailPlaceholder}</span>
+                           <span>{user.displayLabel}</span>
                         </div>
                     </SelectItem>
                     ))
