@@ -7,7 +7,7 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData,
 import { useFirebase } from '@/context/firebase-context';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, User, MapPin, AreaChart, Map, GitCompareArrows } from 'lucide-react'; // Added GitCompareArrows
+import { AlertTriangle, User, MapPin, AreaChart, Map as MapIcon, GitCompareArrows } from 'lucide-react'; // Added GitCompareArrows, aliased Map
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -63,7 +63,7 @@ export function PublicDataView() {
                   console.warn(`PublicDataView: Invalid document path for doc ${doc.id}, skipping.`);
                   return;
                }
-               const userId = parentPathSegments[parentPathSegments.length - 2];
+               const userId = parentPathSegments[parentPathSegments.length - 3]; // users/{userId}/soilData/{docId}
 
               let date = docData.date;
               if (!(date instanceof Timestamp) || !isValid(date.toDate())) {
@@ -102,7 +102,8 @@ export function PublicDataView() {
 
               fetchedData.push({
                 id: doc.id,
-                userId: userId,
+                userId: userId, // Use the extracted userId
+                userEmail: docData.userEmail || `user_${userId.substring(0, 6)}@example.com`, // Store email if available
                 date: date,
                 location: docData.location ?? null,
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
@@ -126,10 +127,15 @@ export function PublicDataView() {
             setPublicData(fetchedData);
 
             // Auto-selection logic for users and locations
-            const usersForDropdown = Array.from(new Set(fetchedData.map(d => d.userId))).map(uid => ({
-              id: uid,
-              emailPlaceholder: `user_${uid.substring(0, 6)}@example.com`
-            }));
+            const usersForDropdown = Array.from(new Set(fetchedData.map(d => d.userId))).map(uid => {
+              const userEntry = fetchedData.find(d => d.userId === uid);
+              return {
+                id: uid,
+                // Use the actual email if available, otherwise fallback.
+                // Ensure userEmail is part of fetchedData items for this to work.
+                emailPlaceholder: userEntry?.userEmail || `user_${uid.substring(0, 6)}@example.com`
+              }
+            });
 
 
             if (viewMode === 'charts' && !selectedUserId && usersForDropdown.length > 0) {
@@ -200,7 +206,7 @@ export function PublicDataView() {
       if (!usersMap.has(entry.userId)) {
         usersMap.set(entry.userId, {
           id: entry.userId,
-          emailPlaceholder: `user_${entry.userId.substring(0, 6)}@example.com`
+          emailPlaceholder: entry.userEmail || `user_${entry.userId.substring(0, 6)}@example.com`
         });
       }
     });
@@ -289,7 +295,7 @@ export function PublicDataView() {
            </div>
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="map" id="view-map" />
-             <Label htmlFor="view-map" className="flex items-center gap-1 cursor-pointer"><Map className="h-4 w-4" /> World Map View</Label>
+             <Label htmlFor="view-map" className="flex items-center gap-1 cursor-pointer"><MapIcon className="h-4 w-4" /> World Map View</Label>
            </div>
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="comparison" id="view-comparison" />

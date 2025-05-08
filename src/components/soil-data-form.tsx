@@ -164,6 +164,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   const [selectedVessScore, setSelectedVessScore] = useState<number>(initialData?.vessScore ?? 3); // Default VESS score for slider visual
   const [isCalendarOpen, setIsCalendarOpen] = useState(false); // State for calendar popover
   const [locationDetailsLoading, setLocationDetailsLoading] = useState(false); // Loading state for reverse geocoding
+  const [currentLocationDisplay, setCurrentLocationDisplay] = useState<string | null>(null);
 
 
   const form = useForm<SoilFormInputs>({
@@ -234,42 +235,79 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
   const handleGetGps = () => {
     setIsGpsLoading(true);
     setGpsError(null); // Clear previous GPS errors
-    setLocationDetailsLoading(false); // Reset location details loading
+    setCurrentLocationDisplay(null); // Clear previous location display
+    setLocationDetailsLoading(false);
+
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          form.setValue('latitude', position.coords.latitude, { shouldValidate: true });
-          form.setValue('longitude', position.coords.longitude, { shouldValidate: true });
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          form.setValue('latitude', lat, { shouldValidate: true });
+          form.setValue('longitude', lon, { shouldValidate: true });
           setIsGpsLoading(false);
-          setGpsError(null); // Clear error on success
-          toast({title: "GPS Location Obtained", description: "Coordinates successfully fetched."})
-          // Automatically trigger reverse geocoding after getting coordinates
-          // fetchLocationDetails(position.coords.latitude, position.coords.longitude); // Now handled in onSubmit
+          setGpsError(null);
+
+          toast({title: "GPS Coordinates Obtained", description: `Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`});
+
+          // Fetch country/region details for display
+          setLocationDetailsLoading(true);
+          try {
+            const details = await getLocationDetails({ latitude: lat, longitude: lon });
+            let displayString = `${details.country || 'Unknown Country'} (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+            if (details.city && details.region && details.country) {
+                displayString = `${details.city}, ${details.region}, ${details.country} (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+            } else if (details.region && details.country) {
+                displayString = `${details.region}, ${details.country} (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+            } else if (details.country) {
+                 displayString = `${details.country} (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+            }
+            setCurrentLocationDisplay(displayString);
+            // Save details to form state - this will be picked up by onSubmit
+            form.setValue('country', details.country || null, { shouldValidate: false });
+            form.setValue('region', details.region || null, { shouldValidate: false });
+            form.setValue('city', details.city || null, { shouldValidate: false });
+
+          } catch (geoError) {
+            console.error("Reverse geocoding error for display:", geoError);
+            setCurrentLocationDisplay(`Coords: ${lat.toFixed(4)}, ${lon.toFixed(4)} (Details unavailable)`);
+            // No need to clear form values for country/region here, onSubmit handles them.
+          } finally {
+            setLocationDetailsLoading(false);
+          }
         },
         (error) => {
           console.error("Geolocation error:", error);
-          setGpsError(`GPS Error: ${error.message}. Please ensure location services are enabled and permissions granted.`);
+          setGpsError(`GPS Error: ${error.message}. Ensure location services are enabled.`);
           setIsGpsLoading(false);
-          toast({variant: "destructive", title: "GPS Error", description: "Could not obtain location. You may need to grant permission or enter manually."})
+          setCurrentLocationDisplay(null);
+          toast({variant: "destructive", title: "GPS Error", description: "Could not obtain location. Try again or enter manually."})
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 } // Standard options
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
       );
     } else {
       setGpsError("Geolocation is not supported by this browser.");
       setIsGpsLoading(false);
-        toast({variant: "destructive", title: "GPS Not Supported", description: "Try entering location manually."})
+      setCurrentLocationDisplay(null);
+      toast({variant: "destructive", title: "GPS Not Supported", description: "Try entering location manually."})
     }
   };
+
 
    // Get GPS automatically if option is selected and no coords exist, only on initial load or manual switch TO gps
    useEffect(() => {
     if (watchLocationOption === 'gps' && form.getValues('latitude') === undefined && !isGpsLoading && !initialData?.latitude) {
-       // Fetch only if GPS is selected, no coords exist yet, not already loading, and not editing existing GPS data
         handleGetGps();
     }
-    // Clear GPS error if user switches to manual
     if (watchLocationOption === 'manual') {
         setGpsError(null);
+        setCurrentLocationDisplay(null);
+        // Clear GPS related form fields if switching to manual from GPS
+        form.setValue('latitude', undefined, { shouldValidate: false });
+        form.setValue('longitude', undefined, { shouldValidate: false });
+        form.setValue('country', null, { shouldValidate: false });
+        form.setValue('region', null, { shouldValidate: false });
+        form.setValue('city', null, { shouldValidate: false });
     }
      // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [watchLocationOption, initialData]); // Rerun when option changes or initial data loads
@@ -347,27 +385,43 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
     setLoading(true);
     setError(null);
     setGpsError(null); // Clear errors on submit attempt
-    setLocationDetailsLoading(false); // Reset reverse geocoding loading
+    let locationDetailsToSave: { country?: string; region?: string; city?: string } = {
+        country: data.country || undefined,
+        region: data.region || undefined,
+        city: data.city || undefined,
+    };
 
-    let locationDetails: { country?: string; region?: string; city?: string } = {};
 
-    // Fetch location details *before* saving if GPS is selected and coords exist
-    if (data.locationOption === 'gps' && data.latitude && data.longitude) {
+    // Re-fetch location details ONLY if GPS is selected AND coordinates exist
+    // AND (it's a new entry OR existing entry's coordinates changed OR existing entry has no country/region yet)
+    const existingLat = initialData?.latitude;
+    const existingLon = initialData?.longitude;
+    const coordsChanged = (existingLat !== data.latitude || existingLon !== data.longitude);
+    const needsGeoFetch = data.locationOption === 'gps' && data.latitude != null && data.longitude != null &&
+                          (!initialData || coordsChanged || !initialData.country);
+
+
+    if (needsGeoFetch) {
         setLocationDetailsLoading(true);
         try {
-            locationDetails = await getLocationDetails({
-                latitude: data.latitude,
-                longitude: data.longitude,
+            const fetchedDetails = await getLocationDetails({
+                latitude: data.latitude!,
+                longitude: data.longitude!,
             });
-            console.log("Reverse geocoding successful:", locationDetails);
+            locationDetailsToSave = {
+                country: fetchedDetails.country || undefined,
+                region: fetchedDetails.region || undefined,
+                city: fetchedDetails.city || undefined,
+            };
+            console.log("Reverse geocoding successful for save:", locationDetailsToSave);
         } catch (geoError) {
-            console.error("Reverse geocoding error:", geoError);
+            console.error("Reverse geocoding error during save:", geoError);
             toast({
-                variant: "default", // Use default, not destructive, as it's non-critical
-                title: "Location Details Unavailable",
-                description: "Could not fetch country/region for the coordinates.",
+                variant: "default",
+                title: "Location Details Partially Unavailable",
+                description: "Could not fetch full country/region for the coordinates. Saved with available data.",
             });
-            // Proceed without location details, don't block submission
+            // Proceed with whatever details were already in form (if any) or nulls
         } finally {
             setLocationDetailsLoading(false);
         }
@@ -378,6 +432,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
       // Prepare data common to both types
       const baseData = {
         userId: user.uid,
+        userEmail: user.email || null, // Add user's email
         date: Timestamp.fromDate(data.date), // Use the selected date
         privacy: data.privacy,
         locationOption: data.locationOption, // Save the option chosen
@@ -387,9 +442,9 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                 latitude: data.latitude ?? null,
                 longitude: data.longitude ?? null,
                 location: null, // Explicitly null for GPS
-                country: locationDetails.country ?? null, // Add fetched details or null
-                region: locationDetails.region ?? null,
-                city: locationDetails.city ?? null,
+                country: locationDetailsToSave.country ?? null, // Add fetched details or null
+                region: locationDetailsToSave.region ?? null,
+                city: locationDetailsToSave.city ?? null,
               }
         ),
       };
@@ -456,6 +511,9 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
             manualLocation: '',
             latitude: undefined, // Reset coords explicitly
             longitude: undefined,
+            country: undefined,
+            region: undefined,
+            city: undefined,
             privacy: settings?.defaultPrivacy ?? 'private',
             measurementType: 'vess', // Reset to default type
             vessScore: 3,
@@ -466,6 +524,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
 
           setMeasurementType('vess'); // Reset local state for UI
           setSelectedVessScore(3); // Reset visual VESS score
+          setCurrentLocationDisplay(null); // Reset location display
           setStep(1); // Reset steps
       }
 
@@ -519,10 +578,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
              form.setError('manualLocation', { type: 'manual', message: 'Manual location name is required.' });
          }
          if (form.getValues('locationOption') === 'gps' && (form.getValues('latitude') === undefined || form.getValues('longitude') === undefined)) {
-              // Don't set an error here automatically, let the validation handle it or show GPS-specific error
               if (!isGpsLoading && !gpsError) {
-                 // Only set GPS error if not loading and no error exists yet
-                 // setGpsError("Could not obtain GPS coordinates. Try again or enter manually.");
+                  setGpsError("GPS coordinates are required. Click 'Use GPS' or enter manually.");
               }
          }
 
@@ -552,14 +609,6 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-         {/* Display GPS specific errors */}
-         {gpsError && (
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>GPS Error</AlertTitle>
-            <AlertDescription>{gpsError}</AlertDescription>
           </Alert>
         )}
 
@@ -629,18 +678,17 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     <FormControl>
                     <RadioGroup
                         onValueChange={(value: 'gps' | 'manual') => {
-                            field.onChange(value); // Update form state
-                            // Clear the other option's value and potentially trigger GPS fetch
+                            field.onChange(value);
                             if (value === 'gps') {
-                                form.setValue('manualLocation', '', { shouldValidate: true }); // Clear and validate
-                                // Attempt to get GPS only if no coordinates exist
+                                form.setValue('manualLocation', '', { shouldValidate: true });
                                 if (form.getValues('latitude') === undefined) {
                                     handleGetGps();
                                 }
                             } else {
-                                form.setValue('latitude', undefined, { shouldValidate: false }); // Clear without immediate validation
-                                form.setValue('longitude', undefined, { shouldValidate: false }); // Clear without immediate validation
-                                setGpsError(null); // Clear GPS error when switching to manual
+                                // Keep existing GPS coords but don't auto-fetch
+                                // If user wants to clear them, they can manually edit or re-click Use GPS
+                                setGpsError(null); // Clear any GPS error
+                                // setCurrentLocationDisplay(null); // Clear display when switching to manual
                             }
                         }}
                         value={field.value}
@@ -651,7 +699,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                 <RadioGroupItem value="gps" id="location-gps"/>
                             </FormControl>
                             <Label htmlFor="location-gps" className="font-normal cursor-pointer">Use GPS</Label>
-                             {isGpsLoading && <LoadingSpinner size={16}/>}
+                             {(isGpsLoading || locationDetailsLoading) && <LoadingSpinner size={16}/>}
                         </FormItem>
                         <FormItem className="flex items-center space-x-2 space-y-0">
                             <FormControl>
@@ -662,7 +710,6 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     </RadioGroup>
                     </FormControl>
 
-                    {/* Conditionally show Manual Input or GPS status */}
                     {field.value === 'manual' && (
                          <FormField
                             control={form.control}
@@ -672,21 +719,23 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     <FormControl>
                                         <Input placeholder="E.g., Back Field, Plot 3B" {...manualField} />
                                     </FormControl>
-                                    <FormMessage /> {/* Shows validation errors for manualLocation */}
+                                    <FormMessage />
                                 </FormItem>
                             )}
                             />
                     )}
-                     {field.value === 'gps' && form.getValues('latitude') !== undefined && !isGpsLoading && !gpsError && (
+                     {field.value === 'gps' && (currentLocationDisplay || (form.getValues('latitude') && !isGpsLoading && !locationDetailsLoading && !gpsError)) && (
                          <p className="text-sm text-muted-foreground mt-2">
-                         Coordinates: {form.getValues('latitude')?.toFixed(4)}, {form.getValues('longitude')?.toFixed(4)}
-                       </p>
+                            {currentLocationDisplay || `Coords: ${form.getValues('latitude')?.toFixed(4)}, ${form.getValues('longitude')?.toFixed(4)}`}
+                         </p>
                     )}
-                    {/* Display GPS error inline if relevant */}
-                    {field.value === 'gps' && gpsError && (
-                        <p className="text-sm text-destructive mt-2">{gpsError}</p>
+                    {gpsError && (
+                        <Alert variant="destructive" className="mt-2">
+                           <AlertTriangle className="h-4 w-4" />
+                           <AlertTitle>GPS Error</AlertTitle>
+                           <AlertDescription>{gpsError}</AlertDescription>
+                         </Alert>
                     )}
-                     {/* General message area for locationOption validation itself (less common) */}
                      <FormMessage />
                 </FormItem>
                 )}
@@ -731,9 +780,8 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     <FormLabel>📊 Measurement Type</FormLabel>
                     <FormControl>
                         <RadioGroup
-                         // Use field.onChange provided by Controller
                          onValueChange={field.onChange}
-                         value={field.value} // Controlled component
+                         value={field.value}
                          className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4"
                         >
                         <FormItem className="flex items-center space-x-3 space-y-0">
@@ -754,14 +802,12 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                         </FormItem>
                         </RadioGroup>
                     </FormControl>
-                     {/* Display error message specifically for measurementType */}
                      <FormMessage />
                     </FormItem>
                 )}
             />
           </div>
           <div className="mt-6 flex justify-end">
-             {/* Disable button if no measurement type is selected */}
              <Button type="button" onClick={nextStep} >
               Next Step &rarr;
             </Button>
@@ -784,17 +830,14 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                     <FormItem>
                     <FormLabel>VESS Score (1-5)</FormLabel>
                      <FormControl>
-                        {/* Use a simple div wrapper, Fragment caused issues with IDs */}
                          <div>
                           <Slider
-                              // Controlled component: value MUST come from field.value
-                              value={[field.value ?? 3]} // Provide default if field.value is undefined/null
+                              value={[field.value ?? 3]}
                               min={1}
                               max={5}
                               step={1}
                               onValueChange={(value) => {
-                                  field.onChange(value[0]); // Update form state via Controller
-                                  // Visual state update is handled by useEffect watching field.value
+                                  field.onChange(value[0]);
                               }}
                               className="my-4"
                               />
@@ -805,7 +848,6 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                 <span>4</span>
                                 <span>5 (Excel)</span>
                              </div>
-                            {/* Display Image and Description based on visual state */}
                              {selectedVessScore >= 1 && selectedVessScore <= 5 && (
                                 <div className="mt-4 p-4 border rounded-md bg-muted/30 flex flex-col sm:flex-row items-center gap-4">
                                     <Image
@@ -814,7 +856,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                         width={150}
                                         height={150}
                                         className="rounded-md border vess-image-container"
-                                        priority={false} // Smaller images, maybe not priority
+                                        priority={false} 
                                         data-ai-hint={`soil structure VESS score ${selectedVessScore}`}
                                     />
                                     <p className="text-center sm:text-left text-sm">{VESS_DESCRIPTIONS[selectedVessScore]}</p>
@@ -844,8 +886,7 @@ export function SoilDataForm({ initialData, onFormSubmit }: SoilDataFormProps) {
                                     min="0"
                                     placeholder="e.g., 5.5"
                                     {...field}
-                                    // Controlled input: Handle number conversion
-                                    value={field.value ?? ''} // Display empty string if undefined/null
+                                    value={field.value ?? ''} 
                                     onChange={e => field.onChange(e.target.value === '' ? undefined : parseFloat(e.target.value))}
                                     />
                                 </FormControl>

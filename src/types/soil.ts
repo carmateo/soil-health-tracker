@@ -4,6 +4,7 @@ import type { Timestamp } from 'firebase/firestore';
 export interface SoilData {
   id?: string; // Optional: Firestore document ID
   userId: string;
+  userEmail?: string; // Optional: User's email for display
   date: Timestamp;
   location?: string | null; // Explicitly allow null for manual location name
   locationOption?: 'gps' | 'manual'; // Store how location was determined
