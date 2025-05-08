@@ -33,18 +33,18 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-primary text-primary-foreground shadow-sm">
-      {/* Increased horizontal padding from px-6 to px-8 */}
       <div className="container flex h-16 items-center justify-between px-8">
-        {/* Removed pl-4 as padding is now handled by the container */}
-        <Link href={user ? "/dashboard" : "/"} className="flex items-center space-x-3">
-           {/* Replace Leaf icon with Image component */}
+        <Link
+          href={user ? "/dashboard" : "/"}
+          className="flex items-center space-x-3"
+          style={{ marginLeft: '-0.5cm' }} // Move an additional 0.5cm to the left
+        >
            <Image
-             src="/Logo Vector.png" // Path relative to the 'public' directory
+             src="/Logo Vector.png" 
              alt="SHDC Logo"
-             width={30} // Adjust width as needed
-             height={30} // Adjust height as needed (was h-6 -> 24px)
-             className="object-contain" // Ensure the image scales correctly
-            // Removed style={{ marginLeft: '1cm' }} to move the logo 1cm to the left from its previous position
+             width={30} 
+             height={30} 
+             className="object-contain"
            />
           <span className="font-bold text-xl">Soil Health Data Collection</span>
         </Link>
