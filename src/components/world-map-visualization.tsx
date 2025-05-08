@@ -54,7 +54,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             className="w-full h-full bg-card" // map background using card color
             data-ai-hint="world map countries interactive"
           >
-            <ZoomableGroup center={[0, 20]} zoom={1} minZoom={0.75} maxZoom={8}> {/* Allow some zoom, but not excessive */}
+            <ZoomableGroup center={[0, 20]} zoom={1} minZoom={0.75} maxZoom={20}> {/* Increased maxZoom to 20 */}
               <Sphere
                 stroke="hsl(var(--border))"
                 fill="hsl(200, 50%, 92%)" // Soft, light blue for water/sphere, more subtle
@@ -127,3 +127,4 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default memo(WorldMapVisualization);
 export { WorldMapVisualization };
+
