@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 // import { calculateSoilProperties } from '@/lib/soil-calculations'; // Currently unused due to mock data
-import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers, Wind, Leaf, MapPin as MapPinIcon } from 'lucide-react';
+import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers3, Wind, Leaf, MapPin as MapPinIcon } from 'lucide-react'; // Changed Sand to Layers3
 
 // Use a TopoJSON file that defines country features
 const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
@@ -58,12 +58,12 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     setSelectedCountryName(countryName);
 
     // Mock data for display purposes
-    const mockSampleCount = Math.floor(Math.random() * 100) + 5; 
-    const mockAvgVessScore = parseFloat((Math.random() * 4 + 1).toFixed(1)); 
-    const mockSandPercent = parseFloat((Math.random() * 60 + 20).toFixed(1)); 
-    const mockClayPercent = parseFloat((Math.random() * 40 + 10).toFixed(1)); 
+    const mockSampleCount = Math.floor(Math.random() * 100) + 5;
+    const mockAvgVessScore = parseFloat((Math.random() * 4 + 1).toFixed(1));
+    const mockSandPercent = parseFloat((Math.random() * 60 + 20).toFixed(1));
+    const mockClayPercent = parseFloat((Math.random() * 40 + 10).toFixed(1));
     const mockSiltPercent = parseFloat(Math.max(0, 100 - mockSandPercent - mockClayPercent).toFixed(1));
-    const mockTawPercent = parseFloat((Math.random() * 15 + 5).toFixed(1)); 
+    const mockTawPercent = parseFloat((Math.random() * 15 + 5).toFixed(1));
 
     setAggregatedData({
       name: countryName,
@@ -75,7 +75,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
       avgTawPercent: mockTawPercent,
     });
     setIsSheetOpen(true);
-  }, []); 
+  }, []);
 
   const handleSheetOpenChange = (open: boolean) => {
     setIsSheetOpen(open);
@@ -84,7 +84,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
       setAggregatedData(null);
     }
   };
-  
+
 
   return (
     <Card className="bg-card shadow-md border-border overflow-hidden">
@@ -104,16 +104,16 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             className="w-full h-full bg-card"
             data-ai-hint="world map countries interactive"
           >
-            <ZoomableGroup 
-              center={[0, 20]} 
-              zoom={currentZoom} 
+            <ZoomableGroup
+              center={[0, 20]}
+              zoom={currentZoom}
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
-              minZoom={0.75} 
+              minZoom={1} // Adjusted minZoom to prevent excessive zoom out
               maxZoom={12}
             >
               <Sphere
                 stroke="hsl(var(--border))"
-                fill="hsl(200, 50%, 92%)" 
+                fill="hsl(200, 50%, 92%)"
                 strokeWidth={0.3}
                 id="sphere"
                 onClick={() => { handleSheetOpenChange(false); }}
@@ -154,19 +154,20 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                   ))
                 }
               </Geographies>
-              {mapMarkers.map(({ id, name, coordinates, locationDetails }) => (
+              {mapMarkers.map(({ id, name, coordinates, locationDetails }) => {
+                const pinSize = Math.max(5, 10 / currentZoom); // Pin size adjusts slightly with zoom, minimum size 5
+                const strokeWidth = Math.max(0.5, 1 / currentZoom); // Stroke width also adjusts
+
+                return (
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            {/* Adjusted transform for new size, Positions the tip of a 10px MapPin at (0,0) */}
-                            <g transform="translate(-5 -10)"> 
-                                <MapPinIcon
-                                    size={10} // Increased size
-                                    fill="hsl(var(--accent))"
-                                    stroke="hsl(var(--card-foreground))" 
-                                    strokeWidth={1} // Increased strokeWidth
-                                    className="transition-transform duration-150 ease-in-out hover:scale-125 drop-shadow-sm"
-                                />
+                            <g transform={`translate(${-pinSize / 2}, ${-pinSize}) scale(${1 / currentZoom})`}>
+                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--card-foreground))" strokeWidth={strokeWidth * 2} // Adjust stroke width scaling
+                                    className="transition-transform duration-150 ease-in-out hover:opacity-80 drop-shadow-sm">
+                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                    <circle cx="12" cy="10" r="3" fill="hsl(var(--accent-foreground))"></circle>
+                                </svg>
                             </g>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs bg-popover text-popover-foreground rounded-md shadow-lg p-2">
@@ -176,7 +177,8 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                         </TooltipContent>
                     </Tooltip>
                  </Marker>
-              ))}
+                );
+              })}
             </ZoomableGroup>
           </ComposableMap>
         </TooltipProvider>
@@ -220,14 +222,14 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                   </CardContent>
                 </Card>
               )}
-              
+
               {(aggregatedData.avgSandPercent !== null || aggregatedData.avgClayPercent !== null || aggregatedData.avgSiltPercent !== null) && (
                 <Card>
                   <CardHeader className="pb-2 pt-4">
                     <CardTitle className="text-lg flex items-center"><BarChart2 className="mr-2 h-5 w-5 text-orange-500" />Avg. Soil Composition</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-1 pb-4">
-                    {aggregatedData.avgSandPercent !== null && <p className="text-sm"><Layers className="inline mr-1.5 h-4 w-4 text-yellow-600" />Sand: <span className="font-semibold">{aggregatedData.avgSandPercent}%</span></p>}
+                    {aggregatedData.avgSandPercent !== null && <p className="text-sm"><Layers3 className="inline mr-1.5 h-4 w-4 text-yellow-600" />Sand: <span className="font-semibold">{aggregatedData.avgSandPercent}%</span></p>}
                     {aggregatedData.avgClayPercent !== null && <p className="text-sm"><Wind className="inline mr-1.5 h-4 w-4 text-red-700" />Clay: <span className="font-semibold">{aggregatedData.avgClayPercent}%</span></p>}
                     {aggregatedData.avgSiltPercent !== null && <p className="text-sm"><TrendingUp className="inline mr-1.5 h-4 w-4 text-gray-500" />Silt: <span className="font-semibold">{aggregatedData.avgSiltPercent}%</span></p>}
                   </CardContent>
@@ -246,7 +248,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 </Card>
               )}
 
-              {aggregatedData.sampleCount === 0 && ( 
+              {aggregatedData.sampleCount === 0 && (
                 <div className="text-center py-8">
                   <HelpCircle className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
                   <p className="text-muted-foreground">No soil data available for {aggregatedData.name}.</p>
@@ -273,4 +275,3 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default React.memo(WorldMapVisualization);
 export { WorldMapVisualization };
-
