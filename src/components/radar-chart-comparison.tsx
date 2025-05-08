@@ -1,25 +1,21 @@
-
 'use client';
 
 import React from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, Legend, Tooltip as RechartsTooltip } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import type { SoilData } from '@/types/soil';
-// calculateSoilProperties is not directly used here anymore as TAW should be pre-calculated in locationData
-// import { calculateSoilProperties } from '@/lib/soil-calculations'; 
 
 interface RadarChartDataPoint {
   subject: string;
-  locationValue: number | null; // Value for "Your Location", normalized or direct based on what's available
-  averageValue: number | null; // Value for "Country Average"
-  fullMark: number; // Max value for this axis on the radar chart
+  locationValue: number | null; 
+  averageValue: number | null; 
+  fullMark: number; // Max value for this axis on the radar chart (will be 100 for all after normalization)
   // Raw values stored for tooltip display
   rawLocationValue: number | null;
   rawAverageValue: number | null;
+  originalFullMark: number; // Store original fullMark for tooltip context if needed
 }
 
-// LocationDataType represents the data structure expected for 'locationData' prop
-// It's essentially SoilData with an id and an optional pre-calculated tawPercent
 export type LocationDataType = SoilData & { id: string; tawPercent?: number | null };
 
 interface RadarChartComparisonProps {
@@ -88,13 +84,24 @@ export function RadarChartComparison({
     const locRawValue = preparedLocationMetrics ? preparedLocationMetrics[item.key as keyof typeof preparedLocationMetrics] : null;
     const countryRawValue = countryAverageData ? countryAverageData[item.key as keyof typeof countryAverageData] : null;
 
+    // Normalize values to a 0-100 scale for plotting
+    const normalize = (value: number | null, originalFullMark: number): number | null => {
+      if (value === null || value === undefined) return null;
+      if (originalFullMark === 0) return 0; // Avoid division by zero
+      return (value / originalFullMark) * 100;
+    };
+
+    const normalizedLocationValue = normalize(locRawValue, item.fullMark);
+    const normalizedAverageValue = normalize(countryRawValue, item.fullMark);
+
     return {
       subject: item.subject,
-      locationValue: locRawValue ?? 0, 
-      averageValue: countryRawValue ?? 0, 
-      fullMark: item.fullMark,
+      locationValue: normalizedLocationValue ?? 0, 
+      averageValue: normalizedAverageValue ?? 0,   
+      fullMark: 100, // All axes in the chart will now go up to 100 for visual consistency
       rawLocationValue: locRawValue, 
       rawAverageValue: countryRawValue,
+      originalFullMark: item.fullMark, // Store original fullMark
     };
   }).filter(item => item.rawLocationValue !== null || item.rawAverageValue !== null); 
 
@@ -131,10 +138,11 @@ export function RadarChartComparison({
     else if (percentageDifference === -Infinity) comparisonText = `significantly below average (avg was 0)`;
 
     const unit = item.subject === 'VESS Score' ? '' : '%';
+    const decimals = item.subject === 'VESS Score' ? 1 : 0;
     return {
       subject: item.subject,
-      locationValueFormatted: locVal.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
-      averageValueFormatted: countryVal.toFixed(item.subject === 'VESS Score' ? 1 : 0) + unit,
+      locationValueFormatted: locVal.toFixed(decimals) + unit,
+      averageValueFormatted: countryVal.toFixed(decimals) + unit,
       comparisonText
     };
   }).filter(Boolean);
@@ -155,16 +163,12 @@ export function RadarChartComparison({
             <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
               <PolarGrid stroke="hsl(var(--border))" />
               <PolarAngleAxis dataKey="subject" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-              {/* 
-                Removed PolarRadiusAxis to allow each axis to scale visually to its own fullMark
-                without misleading shared radial ticks. The PolarGrid still provides the web structure.
-              */}
-              {/* <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} /> */}
+              {/* PolarRadiusAxis is omitted, so each axis scales to its 'fullMark' (now 100 for all) implicitly */}
               
               {preparedLocationMetrics && (
                 <Radar 
                   name={locationName} 
-                  dataKey="locationValue" 
+                  dataKey="locationValue" // Plots the normalized value
                   stroke="hsl(var(--chart-1))" 
                   fill="hsl(var(--chart-1))" 
                   fillOpacity={0.5} 
@@ -174,7 +178,7 @@ export function RadarChartComparison({
               {countryAverageData && (
                 <Radar 
                   name={countryName} 
-                  dataKey="averageValue" 
+                  dataKey="averageValue" // Plots the normalized value
                   stroke="hsl(var(--chart-2))" 
                   fill="hsl(var(--chart-2))" 
                   fillOpacity={0.5} 
@@ -189,9 +193,10 @@ export function RadarChartComparison({
                   borderRadius: 'var(--radius)',
                   fontSize: '12px'
                 }}
-                formatter={(value: number, name: string, entry) => {
-                    const { rawLocationValue, rawAverageValue, subject } = entry.payload;
+                formatter={(value: number, name: string, entry) => { // 'value' here is the normalized value from dataKey
+                    const { rawLocationValue, rawAverageValue, subject, originalFullMark } = entry.payload as RadarChartDataPoint;
                     const unit = subject === 'VESS Score' ? '' : '%';
+                    const decimals = subject === 'VESS Score' ? 1 : 0;
                     
                     let displayValue: number | null = null;
                     if (name === locationName) {
@@ -200,8 +205,10 @@ export function RadarChartComparison({
                         displayValue = rawAverageValue;
                     }
 
+                    const valueSuffix = subject === 'VESS Score' ? ` / ${originalFullMark}` : '%';
+
                     return displayValue !== null && displayValue !== undefined 
-                        ? [`${displayValue.toFixed(subject === 'VESS Score' ? 1:0)}${unit}`, name] 
+                        ? [`${displayValue.toFixed(decimals)}${valueSuffix}`, name] 
                         : [`N/A`, name];
                 }}
                />
@@ -236,4 +243,3 @@ export function RadarChartComparison({
     </div>
   );
 }
-
