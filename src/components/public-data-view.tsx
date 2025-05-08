@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
@@ -6,7 +7,7 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData,
 import { useFirebase } from '@/context/firebase-context';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, User, MapPin, AreaChart, BarChart, Globe } from 'lucide-react'; // Added Globe icon
+import { AlertTriangle, User, MapPin, AreaChart, Map } from 'lucide-react'; // Changed Globe to Map icon
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,7 +17,7 @@ import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-ch
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip components
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Import RadioGroup for view toggle
 import { Label } from '@/components/ui/label'; // Import Label for RadioGroup
-import { GlobeVisualization } from '@/components/globe-visualization'; // Import the new Globe component
+import { WorldMapVisualization } from '@/components/world-map-visualization'; // Import the new WorldMapVisualization component
 import { getLocationKeyAndName, getUniqueLocations } from '@/lib/location-utils'; // Import utility functions
 
 
@@ -27,7 +28,7 @@ export function PublicDataView() {
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null); // Initialize to null, force selection
   const [selectedLocationKey, setSelectedLocationKey] = useState<string | null>(null); // Key for the selected location
-  const [viewMode, setViewMode] = useState<'charts' | 'globe'>('charts'); // State to toggle between chart view and globe view
+  const [viewMode, setViewMode] = useState<'charts' | 'map'>('charts'); // State to toggle between chart view and map view
 
 
   useEffect(() => {
@@ -211,10 +212,11 @@ export function PublicDataView() {
     });
   }, [publicData, selectedUserId, selectedLocationKey, viewMode]);
 
-  // Data for the globe (all public GPS entries)
-  const globeData = useMemo(() => {
-    if (viewMode !== 'globe') return [];
-    return publicData.filter(entry => entry.locationOption === 'gps' && entry.latitude != null && entry.longitude != null);
+  // Data for the map (all public GPS entries)
+  const mapData = useMemo(() => {
+    if (viewMode !== 'map') return [];
+    // For map, we need all public data, not just GPS entries if we want country counts
+    return publicData;
   }, [publicData, viewMode]);
 
 
@@ -245,10 +247,8 @@ export function PublicDataView() {
   };
 
   // Handle view mode change
-  const handleViewModeChange = (mode: 'charts' | 'globe') => {
+  const handleViewModeChange = (mode: 'charts' | 'map') => {
       setViewMode(mode);
-       // Reset user/location selection if switching to globe? Or keep it? Let's keep it for now.
-      // If switching to charts and no user is selected, select the first one if available
       if (mode === 'charts' && !selectedUserId && userIds.length > 0) {
           handleUserChange(userIds[0]);
       }
@@ -279,14 +279,14 @@ export function PublicDataView() {
 
        {/* View Mode Toggle */}
        <div className="flex justify-center mb-6">
-         <RadioGroup value={viewMode} onValueChange={(value) => handleViewModeChange(value as 'charts' | 'globe')} className="flex space-x-4 border border-border p-1 rounded-md bg-muted">
+         <RadioGroup value={viewMode} onValueChange={(value) => handleViewModeChange(value as 'charts' | 'map')} className="flex space-x-4 border border-border p-1 rounded-md bg-muted">
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="charts" id="view-charts" />
              <Label htmlFor="view-charts" className="flex items-center gap-1 cursor-pointer"><AreaChart className="h-4 w-4" /> Charts by User/Location</Label>
            </div>
            <div className="flex items-center space-x-2">
-             <RadioGroupItem value="globe" id="view-globe" />
-             <Label htmlFor="view-globe" className="flex items-center gap-1 cursor-pointer"><Globe className="h-4 w-4" /> Global Map View</Label>
+             <RadioGroupItem value="map" id="view-map" />
+             <Label htmlFor="view-map" className="flex items-center gap-1 cursor-pointer"><Map className="h-4 w-4" /> World Map View</Label>
            </div>
          </RadioGroup>
        </div>
@@ -394,19 +394,19 @@ export function PublicDataView() {
         </>
       )}
 
-      {/* Globe View */}
-      {viewMode === 'globe' && (
+      {/* Map View */}
+      {viewMode === 'map' && (
           <Card className="bg-card shadow-md border-border">
              <CardHeader>
-                 <CardTitle>Global Soil Data Points</CardTitle>
-                 <CardDescription>Interactive map showing locations of public soil data entries.</CardDescription>
+                 <CardTitle>World Map Soil Data</CardTitle>
+                 <CardDescription>Interactive map showing locations of public soil data entries. Hover over a country to see sample counts.</CardDescription>
              </CardHeader>
              <CardContent>
-                 {globeData.length > 0 ? (
-                     <GlobeVisualization data={globeData} />
+                 {mapData.length > 0 ? (
+                     <WorldMapVisualization data={mapData} />
                  ) : (
                     <p className="text-center text-muted-foreground py-10">
-                        No public data with GPS coordinates found to display on the globe.
+                        No public data found to display on the map.
                      </p>
                  )}
              </CardContent>
@@ -417,3 +417,4 @@ export function PublicDataView() {
      </TooltipProvider>
   );
 }
+
