@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
@@ -17,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { calculateSoilProperties } from '@/lib/soil-calculations';
-import { TrendingUp, HelpCircle, BarChart2, Droplets, Sand, Wind, Leaf, MapPinIcon } from 'lucide-react'; // Added icons
+import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers, Wind, Leaf, MapPin } from 'lucide-react'; // Replaced Sand with Layers, MapPinIcon with MapPin
 
 // Use a TopoJSON file that defines country features
 const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
@@ -62,7 +63,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     let sumSandPercent = 0;
     let sumClayPercent = 0;
     let sumSiltPercent = 0;
-    let sumTawPercent = 0;
+    // let sumTawPercent = 0; // This was unused
     let compositionCount = 0;
 
     countryEntries.forEach(entry => {
@@ -84,21 +85,10 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
           if (!entryAddedToCompositionCount) { compositionCount++; entryAddedToCompositionCount = true; }
         }
         
-        // Calculate TAW for this entry
-        if (typeof entry.clayPercent === 'number' && typeof entry.sandPercent === 'number') {
-          const properties = calculateSoilProperties(entry.clayPercent, entry.sandPercent);
-          if (properties && typeof properties.availableWater === 'number') {
-            sumTawPercent += properties.availableWater;
-            // Ensure compositionCount is incremented if not already for sand/clay/silt
-            if (!entryAddedToCompositionCount) { compositionCount++; entryAddedToCompositionCount = true; }
-          }
-        }
+        // TAW calculation handled separately below for clarity
       }
     });
     
-    // Corrected logic: for TAW, count should be based on entries where TAW could be calculated.
-    // For simplicity, we'll use compositionCount, assuming TAW is usually calculable if sand/clay % exist.
-    // A more precise way would be to count how many times sumTawPercent was actually incremented.
     let validTawEntries = 0;
     let tempSumTaw = 0;
     countryEntries.forEach(entry => {
@@ -134,7 +124,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     }
   };
   
-  const markerScale = useCallback(() => Math.max(0.3, 1 / currentZoom), [currentZoom]);
+  const markerScale = useCallback(() => Math.max(0.3 / currentZoom, 0.1), [currentZoom]);
 
 
   return (
@@ -160,7 +150,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
               zoom={currentZoom} 
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
               minZoom={0.75} 
-              maxZoom={8}
+              maxZoom={12} // Increased maxZoom
             >
               <Sphere
                 stroke="hsl(var(--border))"
@@ -209,8 +199,8 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <g transform={`scale(${markerScale()})`}>
-                                <circle r={2.5} fill="hsl(var(--primary))" stroke="hsl(var(--primary-foreground))" strokeWidth={0.5} className="transition-all drop-shadow-sm hover:r-[3.5px]"/>
+                             <g transform={`scale(${markerScale()}) translate(-1.25 -1.25)`}> {/* Center the slightly smaller circle */}
+                                <circle r={1.25} fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={0.25} className="transition-all drop-shadow-sm hover:r-[1.75px]"/>
                             </g>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs bg-popover text-popover-foreground rounded-md shadow-lg p-2">
@@ -243,7 +233,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             <div className="space-y-4">
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-lg flex items-center"><MapPinIcon className="mr-2 h-5 w-5 text-primary" /> Sample Count</CardTitle>
+                  <CardTitle className="text-lg flex items-center"><MapPin className="mr-2 h-5 w-5 text-primary" /> Sample Count</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <p className="text-3xl font-bold">{aggregatedData.sampleCount}</p>
@@ -271,7 +261,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                         <CardTitle className="text-lg flex items-center"><BarChart2 className="mr-2 h-5 w-5 text-orange-500" />Avg. Soil Composition</CardTitle>
                       </CardHeader>
                       <CardContent className="space-y-2">
-                        {aggregatedData.avgSandPercent !== null && <p><Sand className="inline mr-1 h-4 w-4 text-yellow-600" />Sand: {aggregatedData.avgSandPercent}%</p>}
+                        {aggregatedData.avgSandPercent !== null && <p><Layers className="inline mr-1 h-4 w-4 text-yellow-600" />Sand: {aggregatedData.avgSandPercent}%</p>}
                         {aggregatedData.avgClayPercent !== null && <p><Wind className="inline mr-1 h-4 w-4 text-red-700" />Clay: {aggregatedData.avgClayPercent}%</p>}
                         {aggregatedData.avgSiltPercent !== null && <p><TrendingUp className="inline mr-1 h-4 w-4 text-gray-500" />Silt: {aggregatedData.avgSiltPercent}%</p>}
                       </CardContent>
@@ -299,7 +289,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             </div>
           ) : (
             <div className="text-center py-8">
-              <MapPinIcon className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
+              <MapPin className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
               <p className="text-muted-foreground">Click on a country on the map to view its aggregated soil data.</p>
             </div>
           )}
@@ -316,3 +306,4 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default React.memo(WorldMapVisualization);
 export { WorldMapVisualization };
+
