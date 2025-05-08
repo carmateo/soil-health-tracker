@@ -17,8 +17,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetClose } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import { calculateSoilProperties } from '@/lib/soil-calculations';
-import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers, Wind, Leaf, MapPin } from 'lucide-react';
+// import { calculateSoilProperties } from '@/lib/soil-calculations'; // Currently unused due to mock data
+import { TrendingUp, HelpCircle, BarChart2, Droplets, Layers, Wind, Leaf, MapPin as MapPinIcon } from 'lucide-react';
 
 // Use a TopoJSON file that defines country features
 const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/countries-110m.json';
@@ -58,12 +58,12 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     setSelectedCountryName(countryName);
 
     // Mock data for display purposes
-    const mockSampleCount = Math.floor(Math.random() * 100) + 5; // Random sample count between 5 and 104
-    const mockAvgVessScore = parseFloat((Math.random() * 4 + 1).toFixed(1)); // Random VESS score between 1.0 and 5.0
-    const mockSandPercent = parseFloat((Math.random() * 60 + 20).toFixed(1)); // Random sand % between 20 and 80
-    const mockClayPercent = parseFloat((Math.random() * 40 + 10).toFixed(1)); // Random clay % between 10 and 50
-    const mockSiltPercent = parseFloat(Math.max(0, 100 - mockSandPercent - mockClayPercent).toFixed(1)); // Calculate silt to roughly sum to 100
-    const mockTawPercent = parseFloat((Math.random() * 15 + 5).toFixed(1)); // Random TAW % between 5 and 20
+    const mockSampleCount = Math.floor(Math.random() * 100) + 5; 
+    const mockAvgVessScore = parseFloat((Math.random() * 4 + 1).toFixed(1)); 
+    const mockSandPercent = parseFloat((Math.random() * 60 + 20).toFixed(1)); 
+    const mockClayPercent = parseFloat((Math.random() * 40 + 10).toFixed(1)); 
+    const mockSiltPercent = parseFloat(Math.max(0, 100 - mockSandPercent - mockClayPercent).toFixed(1));
+    const mockTawPercent = parseFloat((Math.random() * 15 + 5).toFixed(1)); 
 
     setAggregatedData({
       name: countryName,
@@ -75,7 +75,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
       avgTawPercent: mockTawPercent,
     });
     setIsSheetOpen(true);
-  }, []); // Removed `data` dependency as we are using mock data for now
+  }, []); 
 
   const handleSheetOpenChange = (open: boolean) => {
     setIsSheetOpen(open);
@@ -85,8 +85,6 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     }
   };
   
-  const markerScale = useCallback(() => Math.max(0.3 / currentZoom, 0.1), [currentZoom]);
-
 
   return (
     <Card className="bg-card shadow-md border-border overflow-hidden">
@@ -118,7 +116,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 fill="hsl(200, 50%, 92%)" 
                 strokeWidth={0.3}
                 id="sphere"
-                onClick={() => { handleSheetOpenChange(false); }} // Close sheet on sphere click
+                onClick={() => { handleSheetOpenChange(false); }}
               />
               <Graticule stroke="hsl(var(--border)/0.5)" strokeWidth={0.3} />
               <Geographies geography={geoUrl}>
@@ -160,8 +158,14 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                             <g transform={`scale(${markerScale()}) translate(-1.25 -1.25)`}>
-                                <circle r={1.25} fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={0.25} className="transition-all drop-shadow-sm hover:r-[1.75px]"/>
+                            <g transform="translate(-4 -8)"> {/* Positions the tip of an 8px MapPin at (0,0) */}
+                                <MapPinIcon
+                                    size={8} // Fixed size for the pin
+                                    fill="hsl(var(--accent))"
+                                    stroke="hsl(var(--card-foreground))" 
+                                    strokeWidth={0.75} 
+                                    className="transition-transform duration-150 ease-in-out hover:scale-125 drop-shadow-sm"
+                                />
                             </g>
                         </TooltipTrigger>
                         <TooltipContent className="max-w-xs text-xs bg-popover text-popover-foreground rounded-md shadow-lg p-2">
@@ -196,7 +200,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             <div className="space-y-4">
               <Card>
                 <CardHeader className="pb-2 pt-4">
-                  <CardTitle className="text-lg flex items-center"><MapPin className="mr-2 h-5 w-5 text-primary" /> Sample Count</CardTitle>
+                  <CardTitle className="text-lg flex items-center"><MapPinIcon className="mr-2 h-5 w-5 text-primary" /> Sample Count</CardTitle>
                 </CardHeader>
                 <CardContent className="pb-4">
                   <p className="text-3xl font-bold">{aggregatedData.sampleCount}</p>
@@ -241,7 +245,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 </Card>
               )}
 
-              {aggregatedData.sampleCount === 0 && ( // Only show if sampleCount from mock is 0 or if we decide to not mock it.
+              {aggregatedData.sampleCount === 0 && ( 
                 <div className="text-center py-8">
                   <HelpCircle className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
                   <p className="text-muted-foreground">No soil data available for {aggregatedData.name}.</p>
@@ -251,7 +255,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             </div>
           ) : (
             <div className="text-center py-8">
-              <MapPin className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
+              <MapPinIcon className="mx-auto h-12 w-12 text-muted-foreground mb-2" />
               <p className="text-muted-foreground">Click on a country on the map to view its aggregated soil data.</p>
             </div>
           )}
