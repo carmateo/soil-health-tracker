@@ -282,20 +282,25 @@ export function LocationComparisonView() {
     const entriesForLocation = userSoilData.filter(
       (entry) => getLocationKeyAndName(entry).key === selectedUserLocationKey
     );
-    if (!entriesForLocation.length) return null;
 
-    const latestEntry = entriesForLocation.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0];
+    // Filter for 'composition' type entries and get the latest one
+    const compositionEntries = entriesForLocation.filter(entry => entry.measurementType === 'composition');
+    if (!compositionEntries.length) return null; // No composition data for this location
+
+    const latestCompositionEntry = compositionEntries.sort((a, b) => b.date.toDate().getTime() - a.date.toDate().getTime())[0];
 
     let tawPercent: number | null = null;
-    if (latestEntry.measurementType === 'composition' && latestEntry.clayPercent != null && latestEntry.sandPercent != null) {
-      const properties = calculateSoilProperties(latestEntry.clayPercent, latestEntry.sandPercent);
+    // Ensure we are working with a composition entry for TAW calculation
+    if (latestCompositionEntry.measurementType === 'composition' && latestCompositionEntry.clayPercent != null && latestCompositionEntry.sandPercent != null) {
+      const properties = calculateSoilProperties(latestCompositionEntry.clayPercent, latestCompositionEntry.sandPercent);
       if (properties) {
         tawPercent = properties.availableWater;
       }
     }
+    
     return {
-      ...latestEntry,
-      tawPercent: tawPercent, // Ensure tawPercent is part of the returned object for LocationDataType
+      ...latestCompositionEntry, // This is now guaranteed to be a composition entry or null
+      tawPercent: tawPercent, 
     };
   }, [selectedUserLocationKey, userSoilData]);
 
@@ -399,20 +404,20 @@ export function LocationComparisonView() {
             </div>
           </div>
 
-          {selectedUserLocationKey && selectedCountry && simulatedCountryData && ( // selectedLocationSoilData can be null if no data for key
+          {selectedUserLocationKey && selectedCountry && simulatedCountryData && ( 
             <div className="mt-8 pt-6 border-t border-border">
               <RadarChartComparison
-                locationData={selectedLocationSoilData} // Pass the processed user location data
+                locationData={selectedLocationSoilData} 
                 countryAverageData={simulatedCountryData}
                 locationName={userLocations.find(loc => loc.key === selectedUserLocationKey)?.name || "Your Location"}
                 countryName={countriesList.find(c => c.value === selectedCountry)?.label || "Selected Country"}
               />
             </div>
           )}
-           {/* Placeholder if selections are made but location data is missing */}
+           {/* Placeholder if selections are made but location data is missing (e.g., no composition data for selected location) */}
            {selectedUserLocationKey && selectedCountry && !selectedLocationSoilData && !loadingUserSoilData &&(
                 <p className="text-muted-foreground text-center py-10">
-                    No soil data found for the selected location to compare.
+                    No soil composition data found for the selected location to compare. Please ensure a 'Composition' type entry exists.
                 </p>
             )}
         </CardContent>
@@ -420,3 +425,4 @@ export function LocationComparisonView() {
     </TooltipProvider>
   );
 }
+
