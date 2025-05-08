@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, memo } from 'react';
@@ -73,13 +72,18 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             className="w-full h-auto max-h-[500px] rounded-md bg-background" // Responsive styling
             data-ai-hint="world map countries interactive"
           >
-            <ZoomableGroup center={[0, 20]} zoom={1}> {/* Allow zooming and panning */}
-              <Sphere stroke="hsl(var(--border))" strokeWidth={0.5} id="sphere"/>
+            <ZoomableGroup center={[0, 20]} zoom={1} filterZoom={false}> {/* filterZoom={false} to show all details */}
+              <Sphere
+                stroke="hsl(var(--border))"
+                fill="hsl(210, 60%, 95%)" // Light blue fill for water/sphere
+                strokeWidth={0.5}
+                id="sphere"
+              />
               <Graticule stroke="hsl(var(--border))" strokeWidth={0.5} />
               <Geographies geography={geoUrl}>
                 {({ geographies }) =>
                   geographies.map(geo => {
-                    const countryName = geo.properties.name || 'Unknown';
+                    const countryName = geo.properties.NAME || geo.properties.name || 'Unknown'; // common property names for country name
                     const sampleCount = countrySampleCounts[countryName] || 0;
                     const hasData = sampleCount > 0;
 
@@ -96,13 +100,13 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                             }}
                             style={{
                               default: {
-                                fill: hasData ? 'hsl(var(--primary)/0.7)' : 'hsl(var(--muted))', // Color countries with data differently
+                                fill: hasData ? 'hsl(var(--primary)/0.7)' : 'hsl(var(--muted))', // Muted for land, primary-variant if has data
                                 outline: 'none',
-                                stroke: 'hsl(var(--border))',
+                                stroke: 'hsl(var(--border))', // Country borders
                                 strokeWidth: 0.3,
                               },
                               hover: {
-                                fill: 'hsl(var(--primary))',
+                                fill: 'hsl(var(--primary))', // Primary color on hover
                                 outline: 'none',
                                 stroke: 'hsl(var(--foreground))',
                                 strokeWidth: 0.5,
@@ -118,7 +122,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                             )}
                           />
                         </TooltipTrigger>
-                        {/* Tooltip will be shown externally if needed, or react-simple-maps default interaction is fine */}
+                        {/* Tooltip content is now handled by the external state `tooltipContent` and rendered below */}
                       </Tooltip>
                     );
                   })
@@ -141,19 +145,18 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             </ZoomableGroup>
           </ComposableMap>
 
-          {/* Custom Tooltip Display (Optional, can be integrated with map library's tooltips) */}
+          {/* Custom Tooltip Display for Country Hover */}
           {tooltipContent && (
             <div
               className="absolute p-2 text-xs rounded-md shadow-lg pointer-events-none bg-popover text-popover-foreground border border-border"
               style={{
-                // Position this near the mouse or a fixed spot; this is a simple example
-                // For dynamic positioning, you'd need to track mouse events.
-                // For simplicity, this is a static example or would be handled by the library's own tooltips.
-                // This example is more for a fixed display.
-                bottom: '10px',
-                left: '10px',
+                // This is a very basic way to show the tooltip.
+                // For a real app, you'd track mouse position to place it dynamically.
+                // react-simple-maps doesn't offer a built-in dynamic tooltip container outside of markers.
+                bottom: '20px', // Adjusted position
+                left: '20px',  // Adjusted position
                 opacity: 0.9,
-                zIndex: 1000, // Ensure it's above the map
+                zIndex: 1000, 
               }}
             >
               <p className="font-semibold">{tooltipContent.name}</p>
@@ -173,3 +176,4 @@ export default memo(WorldMapVisualization);
 // Exporting as default and memoized for performance if props don't change often.
 // Re-exporting for the component file name convention:
 export { WorldMapVisualization };
+
