@@ -2,7 +2,7 @@
 'use client';
 
 import React from 'react';
-import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Legend, Tooltip as RechartsTooltip } from 'recharts';
+import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, Legend, Tooltip as RechartsTooltip } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import type { SoilData } from '@/types/soil';
 // calculateSoilProperties is not directly used here anymore as TAW should be pre-calculated in locationData
@@ -13,6 +13,9 @@ interface RadarChartDataPoint {
   locationValue: number | null; // Value for "Your Location", normalized or direct based on what's available
   averageValue: number | null; // Value for "Country Average"
   fullMark: number; // Max value for this axis on the radar chart
+  // Raw values stored for tooltip display
+  rawLocationValue: number | null;
+  rawAverageValue: number | null;
 }
 
 // LocationDataType represents the data structure expected for 'locationData' prop
@@ -20,7 +23,7 @@ interface RadarChartDataPoint {
 export type LocationDataType = SoilData & { id: string; tawPercent?: number | null };
 
 interface RadarChartComparisonProps {
-  locationData: LocationDataType | null; // This should now correctly reflect the latest entry (VESS or Comp)
+  locationData: LocationDataType | null; 
   countryAverageData: {
     vessScore: number | null;
     sandPercent: number | null;
@@ -32,18 +35,6 @@ interface RadarChartComparisonProps {
   countryName?: string;
 }
 
-// Normalize values for the radar chart (0 to fullMark for display purposes on axis)
-// However, for tooltips, we often want to show the raw value.
-// The radar chart itself will scale based on domain [0, 'dataMax'] or specific fullMark per axis.
-// For simplicity in data prep, we'll pass raw values and let Recharts handle scaling on axes.
-// Tooltips will format raw values.
-const normalizeValue = (value: number | null | undefined, max: number): number | null => {
-  if (value === null || value === undefined || isNaN(value)) return null;
-  // For radar display, we might not need to normalize to 0-100 if fullMark is used per axis.
-  // Let's return the value as is, or 0 if it's negative, and capped at max.
-  return Math.max(0, Math.min(value, max));
-};
-
 export function RadarChartComparison({
   locationData,
   countryAverageData,
@@ -51,7 +42,7 @@ export function RadarChartComparison({
   countryName = "Country Average"
 }: RadarChartComparisonProps) {
 
-  if (!countryAverageData && !locationData) { // Show placeholder if no data at all
+  if (!countryAverageData && !locationData) { 
     return (
       <Card className="bg-card shadow-md border-border">
         <CardHeader>
@@ -67,8 +58,6 @@ export function RadarChartComparison({
     );
   }
   
-  // `locationData` (from parent) should now correctly provide VESS or Composition values, with others as null.
-  // So, `preparedLocationMetrics` can directly use these.
   let preparedLocationMetrics: {
     vessScore: number | null;
     sandPercent: number | null;
@@ -87,32 +76,27 @@ export function RadarChartComparison({
     };
   }
 
-  // Define subjects and their max values for the radar chart axes
   const radarSubjects = [
     { subject: 'VESS Score', key: 'vessScore', fullMark: 5 },
     { subject: 'Sand %', key: 'sandPercent', fullMark: 100 },
     { subject: 'Clay %', key: 'clayPercent', fullMark: 100 },
     { subject: 'Silt %', key: 'siltPercent', fullMark: 100 },
-    { subject: 'TAW %', key: 'tawPercent', fullMark: 50 }, // Max TAW can be adjusted based on typical ranges
+    { subject: 'TAW %', key: 'tawPercent', fullMark: 50 }, 
   ];
 
   const chartData: RadarChartDataPoint[] = radarSubjects.map(item => {
-    // Get raw values for tooltip and direct comparison
     const locRawValue = preparedLocationMetrics ? preparedLocationMetrics[item.key as keyof typeof preparedLocationMetrics] : null;
     const countryRawValue = countryAverageData ? countryAverageData[item.key as keyof typeof countryAverageData] : null;
 
-    // For radar chart display, use 0 if value is null, so line goes to center.
-    // Tooltip will show "N/A" for nulls.
     return {
       subject: item.subject,
-      locationValue: locRawValue ?? 0, // Use 0 for chart line if null
-      averageValue: countryRawValue ?? 0, // Use 0 for chart line if null
+      locationValue: locRawValue ?? 0, 
+      averageValue: countryRawValue ?? 0, 
       fullMark: item.fullMark,
-      // Store raw values for tooltip
       rawLocationValue: locRawValue, 
       rawAverageValue: countryRawValue,
     };
-  }).filter(item => item.rawLocationValue !== null || item.rawAverageValue !== null); // Only include if at least one value exists
+  }).filter(item => item.rawLocationValue !== null || item.rawAverageValue !== null); 
 
 
   if (chartData.length === 0) {
@@ -135,7 +119,7 @@ export function RadarChartComparison({
     const locVal = preparedLocationMetrics ? preparedLocationMetrics[item.key as keyof typeof preparedLocationMetrics] : null;
     const countryVal = countryAverageData ? countryAverageData[item.key as keyof typeof countryAverageData] : null;
 
-    if (locVal === null || countryVal === null) return null; // Cannot compare if one is null
+    if (locVal === null || countryVal === null) return null; 
     
     const difference = locVal - countryVal;
     const percentageDifference = countryVal !== 0 ? (difference / countryVal) * 100 : (difference > 0 ? Infinity : (difference < 0 ? -Infinity : 0));
@@ -171,13 +155,12 @@ export function RadarChartComparison({
             <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
               <PolarGrid stroke="hsl(var(--border))" />
               <PolarAngleAxis dataKey="subject" tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-              {/* PolarRadiusAxis can be configured per-axis if `domain` on Radar component is used,
-                  or globally if all axes share similar scale concepts. 
-                  Here, we'll let Recharts determine based on dataMax or explicit fullMark if possible.
-                  For simplicity, a generic radius axis is often fine. */}
-              <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} />
+              {/* 
+                Removed PolarRadiusAxis to allow each axis to scale visually to its own fullMark
+                without misleading shared radial ticks. The PolarGrid still provides the web structure.
+              */}
+              {/* <PolarRadiusAxis angle={30} domain={[0, 'dataMax']} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }} /> */}
               
-              {/* Render location radar only if locationData (and thus preparedLocationMetrics) is present */}
               {preparedLocationMetrics && (
                 <Radar 
                   name={locationName} 
@@ -188,7 +171,6 @@ export function RadarChartComparison({
                 />
               )}
               
-               {/* Render country average radar only if countryAverageData is present */}
               {countryAverageData && (
                 <Radar 
                   name={countryName} 
@@ -208,7 +190,6 @@ export function RadarChartComparison({
                   fontSize: '12px'
                 }}
                 formatter={(value: number, name: string, entry) => {
-                    // Access raw values from the payload for accurate tooltip display
                     const { rawLocationValue, rawAverageValue, subject } = entry.payload;
                     const unit = subject === 'VESS Score' ? '' : '%';
                     
