@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, memo } from 'react';
@@ -16,40 +15,23 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
-const geoUrl =
-  'https://raw.githubusercontent.com/deldersveld/topojson/master/world-countries.json';
+// Use a TopoJSON file that defines land features for continents
+const geoUrl = 'https://unpkg.com/world-atlas@2.0.2/land-110m.json';
 
 interface WorldMapVisualizationProps {
-  data: Array<SoilData & { id: string }>; // Expecting data for markers and tooltips
-}
-
-interface CountryData {
-  name: string;
-  sampleCount: number;
+  data: Array<SoilData & { id: string }>; // Data for markers
 }
 
 const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
-  const [tooltipContent, setTooltipContent] = useState<CountryData | null>(null);
-
-  // Process data to count samples per country (assuming country is available in SoilData)
-  const countrySampleCounts = React.useMemo(() => {
-    const counts: { [key: string]: number } = {};
-    data.forEach(entry => {
-      if (entry.country) {
-        counts[entry.country] = (counts[entry.country] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [data]);
-
-  // Prepare markers for GPS coordinates
+  // Markers for GPS coordinates
   const mapMarkers = React.useMemo(() => {
     return data
       .filter(entry => entry.latitude != null && entry.longitude != null)
       .map(entry => ({
         id: entry.id,
         coordinates: [entry.longitude, entry.latitude] as [number, number],
-        name: `Sample ${entry.id.substring(0,6)}`,
+        name: `Sample ${entry.id.substring(0,6)}...`, // Truncated name for brevity
+        locationDetails: [entry.city, entry.region, entry.country].filter(Boolean).join(', ') || 'Details unavailable'
       }));
   }, [data]);
 
@@ -58,115 +40,81 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
       <CardHeader>
         <CardTitle>World Map Soil Data</CardTitle>
         <CardDescription>
-          Interactive map showing locations of public soil data entries. Hover over a country or marker for details.
+          Interactive map showing locations of public soil data entries. Hover over a marker for details.
         </CardDescription>
       </CardHeader>
-      <CardContent className="p-0 md:p-2 relative"> {/* Reduced padding on small screens */}
+      <CardContent className="p-0 md:p-2 relative">
         <TooltipProvider>
           <ComposableMap
             projectionConfig={{
               rotate: [-10, 0, 0],
-              scale: 147, // Adjust scale as needed
+              scale: 147,
             }}
-            width={800} // Intrinsic width
-            height={400} // Intrinsic height
-            className="w-full h-auto max-h-[500px] rounded-md bg-background" // Responsive styling
-            data-ai-hint="world map countries interactive"
+            width={800}
+            height={400}
+            className="w-full h-auto max-h-[500px] rounded-md bg-background"
+            data-ai-hint="world map landmasses interactive"
           >
-            <ZoomableGroup center={[0, 20]} zoom={1}>
+            <ZoomableGroup center={[0, 20]} zoom={1} filterZoom={false}>
               <Sphere
                 stroke="hsl(var(--border))"
-                fill="hsl(var(--card))" 
+                fill="hsl(210, 60%, 95%)" // Light blue fill for water/sphere
                 strokeWidth={0.5}
                 id="sphere"
               />
               <Graticule stroke="hsl(var(--border))" strokeWidth={0.5} />
               <Geographies geography={geoUrl}>
                 {({ geographies }) =>
-                  geographies.map(geo => {
-                    const countryName = geo.properties.NAME || geo.properties.name || 'Unknown'; // common property names for country name
-                    const sampleCount = countrySampleCounts[countryName] || 0;
-                    const hasData = sampleCount > 0;
-
-                    return (
-                      <Tooltip key={geo.rsmKey}>
-                        <TooltipTrigger asChild>
-                          <Geography
-                            geography={geo}
-                            onMouseEnter={() => {
-                              setTooltipContent({ name: countryName, sampleCount });
-                            }}
-                            onMouseLeave={() => {
-                              setTooltipContent(null);
-                            }}
-                            style={{
-                              default: {
-                                fill: hasData ? 'hsl(var(--primary)/0.7)' : 'hsl(var(--muted))', // Muted for land, primary-variant if has data
-                                outline: 'none',
-                                stroke: 'hsl(var(--foreground))', // Country borders - changed to foreground for better visibility
-                                strokeWidth: 0.3,
-                              },
-                              hover: {
-                                fill: 'hsl(var(--primary))', // Primary color on hover
-                                outline: 'none',
-                                stroke: 'hsl(var(--foreground))',
-                                strokeWidth: 0.5,
-                              },
-                              pressed: {
-                                fill: 'hsl(var(--primary)/0.9)',
-                                outline: 'none',
-                              },
-                            }}
-                            className={cn(
-                              "transition-colors duration-100 ease-in-out",
-                              "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 focus:ring-offset-background"
-                            )}
-                          />
-                        </TooltipTrigger>
-                        {/* Tooltip content is now handled by the external state `tooltipContent` and rendered below */}
-                      </Tooltip>
-                    );
-                  })
+                  geographies.map(geo => (
+                    <Geography
+                      key={geo.rsmKey}
+                      geography={geo}
+                      style={{
+                        default: {
+                          fill: 'hsl(var(--muted))', // Land color (beige)
+                          outline: 'none',
+                          stroke: 'hsl(var(--foreground)/0.3)', // Light border for land features
+                          strokeWidth: 0.2,
+                        },
+                        hover: {
+                          fill: 'hsl(var(--muted)/0.8)', // Slightly darker land on hover
+                          outline: 'none',
+                          stroke: 'hsl(var(--foreground)/0.5)',
+                          strokeWidth: 0.3,
+                        },
+                        pressed: {
+                          fill: 'hsl(var(--muted)/0.7)',
+                          outline: 'none',
+                        },
+                      }}
+                      className={cn(
+                        "transition-colors duration-100 ease-in-out",
+                        "focus:outline-none" // Removed ring as it might not be suitable for landmasses
+                      )}
+                    />
+                  ))
                 }
               </Geographies>
               {/* Render markers for specific data points */}
-              {mapMarkers.map(({ id, name, coordinates }) => (
+              {mapMarkers.map(({ id, name, coordinates, locationDetails }) => (
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <circle r={3} fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={0.5} className="hover:r-4 transition-all cursor-pointer"/>
+                            <circle r={3.5} fill="hsl(var(--accent))" stroke="hsl(var(--background))" strokeWidth={0.75} className="hover:r-[4.5px] transition-all cursor-pointer shadow-md"/>
                         </TooltipTrigger>
-                        <TooltipContent>
-                            <p>{name}</p>
+                        <TooltipContent className="max-w-xs text-xs">
+                            <p className="font-semibold">{name}</p>
                             <p>Lat: {coordinates[1].toFixed(3)}, Lon: {coordinates[0].toFixed(3)}</p>
+                            {locationDetails && <p className="text-muted-foreground">{locationDetails}</p>}
                         </TooltipContent>
                     </Tooltip>
                  </Marker>
               ))}
             </ZoomableGroup>
           </ComposableMap>
-
-          {/* Custom Tooltip Display for Country Hover */}
-          {tooltipContent && (
-            <div
-              className="absolute p-2 text-xs rounded-md shadow-lg pointer-events-none bg-popover text-popover-foreground border border-border"
-              style={{
-                // This is a very basic way to show the tooltip.
-                // For a real app, you'd track mouse position to place it dynamically.
-                // react-simple-maps doesn't offer a built-in dynamic tooltip container outside of markers.
-                bottom: '20px', // Adjusted position
-                left: '20px',  // Adjusted position
-                opacity: 0.9,
-                zIndex: 1000, 
-              }}
-            >
-              <p className="font-semibold">{tooltipContent.name}</p>
-              <p>Samples: {tooltipContent.sampleCount}</p>
-            </div>
-          )}
         </TooltipProvider>
          <p className="text-xs text-muted-foreground text-center mt-2 px-2 pb-2">
-          Scroll to zoom, drag to pan. Hover over countries or data points for details.
+          Scroll to zoom, drag to pan. Hover over data points for details.
         </p>
       </CardContent>
     </Card>
@@ -174,6 +122,4 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 };
 
 export default memo(WorldMapVisualization);
-// Exporting as default and memoized for performance if props don't change often.
-// Re-exporting for the component file name convention:
 export { WorldMapVisualization };
