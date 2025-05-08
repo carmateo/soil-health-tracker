@@ -41,7 +41,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
   const [selectedCountryName, setSelectedCountryName] = useState<string | null>(null);
   const [aggregatedData, setAggregatedData] = useState<AggregatedCountryData | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [currentZoom, setCurrentZoom] = useState(1);
+  const [currentZoom, setCurrentZoom] = useState(1.15); // Initialize with minZoom
 
   const mapMarkers = useMemo(() => {
     return data
@@ -85,6 +85,10 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     }
   };
 
+  // Define translateExtent to restrict panning
+  // These values are based on default ComposableMap dimensions (800x600)
+  // and the sphere radius (scale=147) to keep the sphere visible.
+  const translateExtent: [[number, number], [number, number]] = [[147, 147], [653, 453]];
 
   return (
     <Card className="bg-card shadow-md border-border overflow-hidden">
@@ -110,6 +114,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
               minZoom={1.15}
               maxZoom={12}
+              translateExtent={translateExtent} // Restrict panning
             >
               <Sphere
                 stroke="hsl(var(--border))"
@@ -155,19 +160,22 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 }
               </Geographies>
               {mapMarkers.map(({ id, name, coordinates, locationDetails }) => {
-                const pinBaseSize = 7; // Slightly smaller base size for the pin icon
-                const pinSize = pinBaseSize / Math.sqrt(currentZoom);
-                const strokeWidth = 0.8 / Math.sqrt(currentZoom); // Slightly thinner stroke relative to size
+                const pinBaseSize = 4; // Final small size for the pin icon
+                const pinSize = pinBaseSize / Math.sqrt(currentZoom); // Adjust size dynamically
+                const strokeWidth = 0.5 / Math.sqrt(currentZoom);
+
 
                 return (
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
                              <g transform={`translate(${-pinSize / 2}, ${-pinSize})`}>
-                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={strokeWidth * 2.5}
+                                {/* Pin shape using SVG path */}
+                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={strokeWidth * 5} /* Increased stroke for visibility */
                                     className="transition-transform duration-150 ease-in-out hover:opacity-80 drop-shadow-sm">
                                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                                    <circle cx="12" cy="10" r={Math.max(1.5, 3 / Math.sqrt(currentZoom))} fill="hsl(var(--background))"></circle>
+                                    {/* Smaller circle inside the pin */}
+                                    <circle cx="12" cy="10" r={Math.max(1, 4 / Math.sqrt(currentZoom))} fill="hsl(var(--background))"></circle>
                                 </svg>
                             </g>
                         </TooltipTrigger>
