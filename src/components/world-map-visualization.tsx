@@ -158,12 +158,13 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                  <Marker key={id} coordinates={coordinates}>
                     <Tooltip>
                         <TooltipTrigger asChild>
-                            <g transform="translate(-4 -8)"> {/* Positions the tip of an 8px MapPin at (0,0) */}
+                            {/* Adjusted transform for new size, Positions the tip of a 10px MapPin at (0,0) */}
+                            <g transform="translate(-5 -10)"> 
                                 <MapPinIcon
-                                    size={8} // Fixed size for the pin
+                                    size={10} // Increased size
                                     fill="hsl(var(--accent))"
                                     stroke="hsl(var(--card-foreground))" 
-                                    strokeWidth={0.75} 
+                                    strokeWidth={1} // Increased strokeWidth
                                     className="transition-transform duration-150 ease-in-out hover:scale-125 drop-shadow-sm"
                                 />
                             </g>
