@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   ComposableMap,
   Geographies,
@@ -42,6 +42,50 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
   const [aggregatedData, setAggregatedData] = useState<AggregatedCountryData | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(1.15); // Initialize with minZoom
+
+  const composableMapRef = useRef<SVGSVGElement>(null);
+  const [mapDimensions, setMapDimensions] = useState({ width: 800, height: 400 }); // Default aspect 2:1
+
+  useEffect(() => {
+    const currentMapElement = composableMapRef.current;
+    if (currentMapElement) {
+      const { width, height } = currentMapElement.getBoundingClientRect();
+      if (width > 0 && height > 0) {
+        setMapDimensions({ width, height });
+      }
+
+      const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            setMapDimensions({ width, height });
+          }
+        }
+      });
+      resizeObserver.observe(currentMapElement);
+      return () => {
+        if (currentMapElement) {
+          resizeObserver.unobserve(currentMapElement);
+        }
+      };
+    }
+  }, []);
+
+  const dynamicTranslateExtent = useMemo((): [[number, number], [number, number]] => {
+    const sphereRadius = 147; // from projectionConfig.scale, this is the on-screen radius
+    const { width: mapWidth, height: mapHeight } = mapDimensions;
+
+    // Allow viewport center to move such that any part of the sphere can be centered.
+    // Min/max for the X-coordinate of the viewport center
+    const xMin = Math.max(0, mapWidth / 2 - sphereRadius);
+    const xMax = Math.min(mapWidth, mapWidth / 2 + sphereRadius);
+    // Min/max for the Y-coordinate of the viewport center
+    const yMin = Math.max(0, mapHeight / 2 - sphereRadius);
+    const yMax = Math.min(mapHeight, mapHeight / 2 + sphereRadius);
+    
+    return [[xMin, yMin], [xMax, yMax]];
+  }, [mapDimensions]);
+
 
   const mapMarkers = useMemo(() => {
     return data
@@ -85,10 +129,6 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     }
   };
 
-  // Define translateExtent to restrict panning
-  // These values are based on default ComposableMap dimensions (800x600)
-  // and the sphere radius (scale=147) to keep the sphere visible.
-  const translateExtent: [[number, number], [number, number]] = [[147, 147], [653, 453]];
 
   return (
     <Card className="bg-card shadow-md border-border overflow-hidden">
@@ -101,27 +141,28 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
       <CardContent className="p-0 relative aspect-[2/1]">
         <TooltipProvider>
           <ComposableMap
+            ref={composableMapRef}
             projectionConfig={{
               rotate: [-10, 0, 0],
-              scale: 147,
+              scale: 147, // This determines the sphere radius on screen
             }}
             className="w-full h-full bg-card"
             data-ai-hint="world map countries interactive"
           >
             <ZoomableGroup
-              center={[0, 20]}
+              center={[0, 20]} // Center of the projection to zoom on
               zoom={currentZoom}
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
               minZoom={1.15}
               maxZoom={12}
-              translateExtent={translateExtent} // Restrict panning
+              translateExtent={dynamicTranslateExtent} 
             >
               <Sphere
                 stroke="hsl(var(--border))"
                 fill="hsl(200, 50%, 75%)" // Darker blue for water/sphere
                 strokeWidth={0.3}
                 id="sphere"
-                onClick={() => { handleSheetOpenChange(false); }}
+                onClick={() => { handleSheetOpenChange(false); }} // Close sheet if sphere is clicked
               />
               <Graticule stroke="hsl(var(--border)/0.5)" strokeWidth={0.3} />
               <Geographies geography={geoUrl}>
@@ -160,8 +201,8 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 }
               </Geographies>
               {mapMarkers.map(({ id, name, coordinates, locationDetails }) => {
-                const pinBaseSize = 4; // Final small size for the pin icon
-                const pinSize = pinBaseSize / Math.sqrt(currentZoom); // Adjust size dynamically
+                const pinBaseSize = 4; 
+                const pinSize = pinBaseSize / Math.sqrt(currentZoom); 
                 const strokeWidth = 0.5 / Math.sqrt(currentZoom);
 
 
@@ -171,7 +212,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                         <TooltipTrigger asChild>
                              <g transform={`translate(${-pinSize / 2}, ${-pinSize})`}>
                                 {/* Pin shape using SVG path */}
-                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={strokeWidth * 5} /* Increased stroke for visibility */
+                                <svg width={pinSize} height={pinSize} viewBox="0 0 24 24" fill="hsl(var(--accent))" stroke="hsl(var(--accent-foreground))" strokeWidth={strokeWidth * 5} 
                                     className="transition-transform duration-150 ease-in-out hover:opacity-80 drop-shadow-sm">
                                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                     {/* Smaller circle inside the pin */}
@@ -284,3 +325,5 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default React.memo(WorldMapVisualization);
 export { WorldMapVisualization };
+
+    
