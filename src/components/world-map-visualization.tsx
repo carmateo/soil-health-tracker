@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, memo } from 'react';
@@ -72,10 +73,10 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             className="w-full h-auto max-h-[500px] rounded-md bg-background" // Responsive styling
             data-ai-hint="world map countries interactive"
           >
-            <ZoomableGroup center={[0, 20]} zoom={1} filterZoom={false}> {/* filterZoom={false} to show all details */}
+            <ZoomableGroup center={[0, 20]} zoom={1}>
               <Sphere
                 stroke="hsl(var(--border))"
-                fill="hsl(210, 60%, 95%)" // Light blue fill for water/sphere
+                fill="hsl(var(--card))" 
                 strokeWidth={0.5}
                 id="sphere"
               />
@@ -102,7 +103,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                               default: {
                                 fill: hasData ? 'hsl(var(--primary)/0.7)' : 'hsl(var(--muted))', // Muted for land, primary-variant if has data
                                 outline: 'none',
-                                stroke: 'hsl(var(--border))', // Country borders
+                                stroke: 'hsl(var(--foreground))', // Country borders - changed to foreground for better visibility
                                 strokeWidth: 0.3,
                               },
                               hover: {
@@ -176,4 +177,3 @@ export default memo(WorldMapVisualization);
 // Exporting as default and memoized for performance if props don't change often.
 // Re-exporting for the component file name convention:
 export { WorldMapVisualization };
-
