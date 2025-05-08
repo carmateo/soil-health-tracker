@@ -7,7 +7,7 @@ import { collection, query, where, orderBy, onSnapshot, Timestamp, DocumentData,
 import { useFirebase } from '@/context/firebase-context';
 import { LoadingSpinner } from '@/components/loading-spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { AlertTriangle, User, MapPin, AreaChart, Map } from 'lucide-react'; // Changed Globe to Map icon
+import { AlertTriangle, User, MapPin, AreaChart, Map, GitCompareArrows } from 'lucide-react'; // Added GitCompareArrows
 import type { SoilData } from '@/types/soil';
 import { isValid } from 'date-fns';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,8 +17,9 @@ import { PedotransferAnalysisChart } from '@/components/pedotransfer-analysis-ch
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip components
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'; // Import RadioGroup for view toggle
 import { Label } from '@/components/ui/label'; // Import Label for RadioGroup
-import { WorldMapVisualization } from '@/components/world-map-visualization'; // Import the new WorldMapVisualization component
-import { getLocationKeyAndName, getUniqueLocations } from '@/lib/location-utils'; // Import utility functions
+import { WorldMapVisualization } from '@/components/world-map-visualization';
+import { LocationComparisonView } from '@/components/location-comparison-view'; // Import new component
+import { getLocationKeyAndName, getUniqueLocations } from '@/lib/location-utils';
 
 
 export function PublicDataView() {
@@ -26,9 +27,9 @@ export function PublicDataView() {
   const [publicData, setPublicData] = useState<Array<SoilData & { id: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null); // Initialize to null, force selection
-  const [selectedLocationKey, setSelectedLocationKey] = useState<string | null>(null); // Key for the selected location
-  const [viewMode, setViewMode] = useState<'charts' | 'map'>('charts'); // State to toggle between chart view and map view
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedLocationKey, setSelectedLocationKey] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'charts' | 'map' | 'comparison'>('charts'); // Added 'comparison'
 
 
   useEffect(() => {
@@ -48,7 +49,6 @@ export function PublicDataView() {
             soilDataCollectionGroupRef,
             where('privacy', '==', 'public'),
             orderBy('date', 'desc')
-            // Index required: Collection ID: soilData, Fields: privacy (Asc), date (Desc), Scope: Collection group
         );
 
         unsubscribe = onSnapshot(
@@ -67,7 +67,6 @@ export function PublicDataView() {
 
               let date = docData.date;
               if (!(date instanceof Timestamp) || !isValid(date.toDate())) {
-                 // Try converting potential Date objects or strings if needed, otherwise skip
                  try {
                    let potentialDate;
                    if (typeof docData.date === 'object' && docData.date !== null && 'seconds' in docData.date && 'nanoseconds' in docData.date) {
@@ -104,7 +103,7 @@ export function PublicDataView() {
               fetchedData.push({
                 id: doc.id,
                 userId: userId,
-                date: date, // Store as Firestore Timestamp
+                date: date,
                 location: docData.location ?? null,
                 locationOption: docData.locationOption ?? (docData.latitude ? 'gps' : (docData.location ? 'manual' : undefined)),
                 latitude: docData.latitude ?? null,
@@ -126,33 +125,25 @@ export function PublicDataView() {
             console.log("PublicDataView: Processed public data:", fetchedData);
             setPublicData(fetchedData);
 
-            // Automatically select the first user if none is selected and data exists (only for 'charts' view)
             if (viewMode === 'charts' && !selectedUserId && fetchedData.length > 0) {
                 const firstUserId = fetchedData[0].userId;
                 setSelectedUserId(firstUserId);
-                // Also select the first location for that user
                 const firstUserLocations = getUniqueLocations(fetchedData.filter(d => d.userId === firstUserId));
                 if (firstUserLocations.length > 0) {
                     setSelectedLocationKey(firstUserLocations[0].key);
                 } else {
-                    setSelectedLocationKey(null); // No locations for the first user?
+                    setSelectedLocationKey(null);
                 }
             } else if (selectedUserId && selectedLocationKey && viewMode === 'charts') {
-                // Check if selected user/location combo still exists
                 const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
                 if (!userLocations.some(loc => loc.key === selectedLocationKey)) {
-                    // If selected location is gone for the user, select the first available, or null
                     setSelectedLocationKey(userLocations.length > 0 ? userLocations[0].key : null);
                 }
             } else if (selectedUserId && viewMode === 'charts') {
-                 // Check if the selected user still has ANY locations
                  const userLocations = getUniqueLocations(fetchedData.filter(d => d.userId === selectedUserId));
                  if (userLocations.length === 0) {
-                     // If user has no locations anymore, reset user selection or select next user?
-                     // For simplicity, let's reset the location key only
                      setSelectedLocationKey(null);
                  } else if (!selectedLocationKey) {
-                     // If user is selected but location isn't (e.g., after reset), select first location
                      setSelectedLocationKey(userLocations[0].key);
                  }
             }
@@ -184,27 +175,22 @@ export function PublicDataView() {
       unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db]); // Rerun only when db changes
+  }, [db]);
 
-  // Get unique user IDs for the selector
   const userIds = useMemo(() => {
     const ids = new Set<string>();
     publicData.forEach(entry => ids.add(entry.userId));
     return Array.from(ids);
   }, [publicData]);
 
-
-  // Get unique locations *for the selected user* using the utility function
   const uniqueLocations = useMemo(() => {
     if (!selectedUserId) return [];
     return getUniqueLocations(publicData.filter(entry => entry.userId === selectedUserId));
   }, [publicData, selectedUserId]);
 
-
-  // Filter data based on selected user *and* selected location (for charts view)
   const filteredChartData = useMemo(() => {
      if (viewMode !== 'charts' || !selectedUserId || !selectedLocationKey) {
-      return []; // Don't show chart data if not in charts view or user/location isn't selected
+      return [];
     }
     return publicData.filter(entry => {
         const entryLocationKey = getLocationKeyAndName(entry).key;
@@ -212,16 +198,13 @@ export function PublicDataView() {
     });
   }, [publicData, selectedUserId, selectedLocationKey, viewMode]);
 
-  // Data for the map (all public entries with valid lat/lon)
   const mapData = useMemo(() => {
     if (viewMode !== 'map') return [];
     return publicData.filter(entry => entry.latitude != null && entry.longitude != null);
   }, [publicData, viewMode]);
 
-
   const selectedUserDisplay = useMemo(() => {
     if (!selectedUserId) return 'No User Selected';
-    // Basic obfuscation for display
     return `User ${selectedUserId.substring(0, 6)}...`;
   }, [selectedUserId]);
 
@@ -231,28 +214,21 @@ export function PublicDataView() {
     return location ? location.name : 'Unknown Location';
   }, [selectedLocationKey, uniqueLocations]);
 
-  // Handle user selection change - reset location
   const handleUserChange = (userId: string) => {
       setSelectedUserId(userId);
-      // Find locations for the *newly* selected user using utility function
       const newLocations = getUniqueLocations(publicData.filter(entry => entry.userId === userId));
       if (newLocations.length > 0) {
-          // Select the first location for the new user
           setSelectedLocationKey(newLocations[0].key);
       } else {
-          // No locations for this user
           setSelectedLocationKey(null);
       }
   };
 
-  // Handle view mode change
-  const handleViewModeChange = (mode: 'charts' | 'map') => {
+  const handleViewModeChange = (mode: 'charts' | 'map' | 'comparison') => {
       setViewMode(mode);
       if (mode === 'charts' && !selectedUserId && userIds.length > 0) {
-          // If switching to charts and no user is selected, select the first user
           handleUserChange(userIds[0]);
       } else if (mode === 'charts' && selectedUserId && !selectedLocationKey && uniqueLocations.length > 0) {
-          // If switching to charts, a user is selected but no location, select first location for that user
           setSelectedLocationKey(uniqueLocations[0].key);
       }
   };
@@ -279,10 +255,8 @@ export function PublicDataView() {
   return (
      <TooltipProvider>
     <div className="space-y-6">
-
-       {/* View Mode Toggle */}
        <div className="flex justify-center mb-6">
-         <RadioGroup value={viewMode} onValueChange={(value) => handleViewModeChange(value as 'charts' | 'map')} className="flex space-x-4 border border-border p-1 rounded-md bg-muted">
+         <RadioGroup value={viewMode} onValueChange={(value) => handleViewModeChange(value as 'charts' | 'map' | 'comparison')} className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4 border border-border p-1 rounded-md bg-muted">
            <div className="flex items-center space-x-2">
              <RadioGroupItem value="charts" id="view-charts" />
              <Label htmlFor="view-charts" className="flex items-center gap-1 cursor-pointer"><AreaChart className="h-4 w-4" /> Charts by User/Location</Label>
@@ -291,15 +265,16 @@ export function PublicDataView() {
              <RadioGroupItem value="map" id="view-map" />
              <Label htmlFor="view-map" className="flex items-center gap-1 cursor-pointer"><Map className="h-4 w-4" /> World Map View</Label>
            </div>
+           <div className="flex items-center space-x-2">
+             <RadioGroupItem value="comparison" id="view-comparison" />
+             <Label htmlFor="view-comparison" className="flex items-center gap-1 cursor-pointer"><GitCompareArrows className="h-4 w-4" /> Compare Locations</Label>
+           </div>
          </RadioGroup>
        </div>
 
-      {/* Conditional Rendering based on viewMode */}
       {viewMode === 'charts' && (
         <>
-          {/* User and Location Selectors - Only show in charts mode */}
           <div className="flex flex-col sm:flex-row gap-4 items-center">
-            {/* User Selector */}
             <Select value={selectedUserId ?? ""} onValueChange={handleUserChange}>
               <SelectTrigger className="w-full sm:w-[200px]">
                 <div className="flex items-center gap-2">
@@ -322,7 +297,6 @@ export function PublicDataView() {
               </SelectContent>
             </Select>
 
-            {/* Location Selector - Only enabled if a user is selected */}
             <Select
                 value={selectedLocationKey ?? ""}
                 onValueChange={(key) => setSelectedLocationKey(key)}
@@ -357,12 +331,10 @@ export function PublicDataView() {
             </Select>
           </div>
 
-          {/* Charts Section - Only show if both user and location are selected */}
           {selectedUserId && selectedLocationKey ? (
             <>
             {filteredChartData.length > 0 ? (
                 <div className="space-y-6">
-                    {/* Soil Data Trends Chart */}
                     <Card className="bg-card shadow-md border-border">
                         <CardHeader>
                         <CardTitle>{selectedUserDisplay} - {selectedLocationDisplay}: Data Trends</CardTitle>
@@ -373,10 +345,8 @@ export function PublicDataView() {
                         </CardContent>
                     </Card>
 
-                    {/* Pedotransfer Analysis Chart */}
                     <PedotransferAnalysisChart data={filteredChartData} locationName={selectedLocationDisplay}/>
 
-                    {/* Message if no composition data for the selection */}
                     {!filteredChartData.some(d => d.measurementType === 'composition' && d.sandPercent != null && d.clayPercent != null) && (
                         <p className="text-sm text-center text-muted-foreground mt-2">
                             No soil composition data found for {selectedUserDisplay} at {selectedLocationDisplay} to perform Pedotransfer Analysis.
@@ -389,7 +359,6 @@ export function PublicDataView() {
             )}
             </>
           ) : (
-            // Prompt to select user and location
             <p className="text-center text-muted-foreground py-10">
                 {publicData.length === 0 ? 'No public soil data found overall.' : (selectedUserId ? (uniqueLocations.length > 0 ? 'Please select a location for this user.' : `No locations found for ${selectedUserDisplay}.`) : 'Please select a user to view their locations and data.')}
             </p>
@@ -397,7 +366,6 @@ export function PublicDataView() {
         </>
       )}
 
-      {/* Map View */}
       {viewMode === 'map' && (
           mapData.length > 0 ? (
               <WorldMapVisualization data={mapData} />
@@ -414,6 +382,10 @@ export function PublicDataView() {
                  </CardContent>
             </Card>
            )
+      )}
+
+      {viewMode === 'comparison' && (
+        <LocationComparisonView />
       )}
 
     </div>
