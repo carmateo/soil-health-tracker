@@ -44,8 +44,7 @@ export function SiteHeader() {
              width={30} // Adjust width as needed
              height={30} // Adjust height as needed (was h-6 -> 24px)
              className="object-contain" // Ensure the image scales correctly
-             style={{ marginLeft: '1cm'
- }}
+            // Removed style={{ marginLeft: '1cm' }} to move the logo 1cm to the left from its previous position
            />
           <span className="font-bold text-xl">Soil Health Data Collection</span>
         </Link>
@@ -60,3 +59,4 @@ export function SiteHeader() {
     </header>
   );
 }
+
