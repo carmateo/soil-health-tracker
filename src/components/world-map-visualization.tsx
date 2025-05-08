@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
@@ -49,11 +48,13 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
   useEffect(() => {
     const currentMapElement = composableMapRef.current;
     if (currentMapElement) {
+      // Initial dimensions
       const { width, height } = currentMapElement.getBoundingClientRect();
       if (width > 0 && height > 0) {
         setMapDimensions({ width, height });
       }
 
+      // Setup ResizeObserver
       const resizeObserver = new ResizeObserver(entries => {
         for (let entry of entries) {
           const { width, height } = entry.contentRect;
@@ -63,6 +64,8 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
         }
       });
       resizeObserver.observe(currentMapElement);
+      
+      // Cleanup
       return () => {
         if (currentMapElement) {
           resizeObserver.unobserve(currentMapElement);
@@ -72,16 +75,20 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
   }, []);
 
   const dynamicTranslateExtent = useMemo((): [[number, number], [number, number]] => {
-    const sphereRadius = 147; // from projectionConfig.scale, this is the on-screen radius
+    const sphereRadius = 147; // from projectionConfig.scale, this is the on-screen radius at zoom 1
     const { width: mapWidth, height: mapHeight } = mapDimensions;
 
-    // Allow viewport center to move such that any part of the sphere can be centered.
-    // Min/max for the X-coordinate of the viewport center
-    const xMin = Math.max(0, mapWidth / 2 - sphereRadius);
-    const xMax = Math.min(mapWidth, mapWidth / 2 + sphereRadius);
-    // Min/max for the Y-coordinate of the viewport center
-    const yMin = Math.max(0, mapHeight / 2 - sphereRadius);
-    const yMax = Math.min(mapHeight, mapHeight / 2 + sphereRadius);
+    // Increase panRange to make panning more flexible.
+    // A factor of 1.0 keeps the sphere mostly on screen.
+    // A factor > 1.0 allows it to be panned further off-center.
+    const panRangeFactor = 1.2; 
+    const panRange = sphereRadius * panRangeFactor;
+
+    // Calculate bounds for the center of the ZoomableGroup
+    const xMin = Math.max(0, mapWidth / 2 - panRange);
+    const xMax = Math.min(mapWidth, mapWidth / 2 + panRange);
+    const yMin = Math.max(0, mapHeight / 2 - panRange);
+    const yMax = Math.min(mapHeight, mapHeight / 2 + panRange);
     
     return [[xMin, yMin], [xMax, yMax]];
   }, [mapDimensions]);
@@ -106,7 +113,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
     const mockAvgVessScore = parseFloat((Math.random() * 4 + 1).toFixed(1));
     const mockSandPercent = parseFloat((Math.random() * 60 + 20).toFixed(1));
     const mockClayPercent = parseFloat((Math.random() * 40 + 10).toFixed(1));
-    const mockSiltPercent = parseFloat(Math.max(0, 100 - mockSandPercent - mockClayPercent).toFixed(1));
+    const mockSiltPercent = parseFloat(Math.max(0, 100 - mockSandPercent - mockClayPercent).toFixed(1)); // Ensure sum <= 100
     const mockTawPercent = parseFloat((Math.random() * 15 + 5).toFixed(1));
 
     setAggregatedData({
@@ -144,13 +151,13 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             ref={composableMapRef}
             projectionConfig={{
               rotate: [-10, 0, 0],
-              scale: 147, // This determines the sphere radius on screen
+              scale: 147, 
             }}
             className="w-full h-full bg-card"
             data-ai-hint="world map countries interactive"
           >
             <ZoomableGroup
-              center={[0, 20]} // Center of the projection to zoom on
+              center={[0, 20]} 
               zoom={currentZoom}
               onZoomEnd={({ zoom }) => setCurrentZoom(zoom)}
               minZoom={1.15}
@@ -159,10 +166,10 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
             >
               <Sphere
                 stroke="hsl(var(--border))"
-                fill="hsl(200, 50%, 75%)" // Darker blue for water/sphere
+                fill="hsl(200, 50%, 75%)" 
                 strokeWidth={0.3}
                 id="sphere"
-                onClick={() => { handleSheetOpenChange(false); }} // Close sheet if sphere is clicked
+                onClick={() => { handleSheetOpenChange(false); }} 
               />
               <Graticule stroke="hsl(var(--border)/0.5)" strokeWidth={0.3} />
               <Geographies geography={geoUrl}>
@@ -201,7 +208,7 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
                 }
               </Geographies>
               {mapMarkers.map(({ id, name, coordinates, locationDetails }) => {
-                const pinBaseSize = 4; 
+                const pinBaseSize = 3; // Adjusted base size for smaller default pins
                 const pinSize = pinBaseSize / Math.sqrt(currentZoom); 
                 const strokeWidth = 0.5 / Math.sqrt(currentZoom);
 
@@ -325,5 +332,3 @@ const WorldMapVisualization = ({ data }: WorldMapVisualizationProps) => {
 
 export default React.memo(WorldMapVisualization);
 export { WorldMapVisualization };
-
-    
